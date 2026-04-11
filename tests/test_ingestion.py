@@ -109,7 +109,7 @@ class TestERPSimulator:
     def test_duplicate_has_different_invoice_id(self):
         invoice, po, grn = generate_straight_through_invoice()
         duplicate = generate_duplicate_exception(invoice)
-        assert duplicate.invoice_id != invoice.invoice_id
+        assert duplicate.invoice_number != invoice.invoice_number
 
     def test_duplicate_has_same_po_number(self):
         invoice, po, grn = generate_straight_through_invoice()

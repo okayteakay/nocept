@@ -2,33 +2,33 @@ from __future__ import annotations
 
 import csv
 import logging
-from decimal import Decimal
 from pathlib import Path
 
-from models.grn import GoodsReceiptNote, GRNLineItem
+from models.grn import GoodsReceiptNote
 from models.invoice import Invoice, LineItem
-from models.purchase_order import POLineItem, PurchaseOrder
+from models.purchase_order import PurchaseOrder
 
 logger = logging.getLogger(__name__)
 
 # Expected column sets for schema validation.
 INVOICE_REQUIRED_COLUMNS = {
-    "invoice_id", "supplier_id", "supplier_name", "po_number",
-    "invoice_date", "currency", "sku", "description",
-    "quantity", "unit_price", "line_total", "unit_of_measure",
-    "tax_amount", "freight_amount", "total_amount",
+    "invoice_number", "supplier_id", "supplier_name", "po_number",
+    "invoice_date", "due_date", "payment_terms", "currency",
+    "sku", "description", "product_grade", "quantity", "unit_price", "total",
+    "total_amount",
 }
 
 PO_REQUIRED_COLUMNS = {
-    "po_number", "supplier_id", "supplier_name", "buyer_id",
-    "created_date", "currency", "sku", "description",
-    "quantity", "unit_price", "line_total", "unit_of_measure",
-    "tax_amount", "freight_amount", "total_amount",
+    "po_number", "supplier_id", "supplier_name", "created_by",
+    "department", "cost_center", "creation_date", "currency",
+    "sku", "description", "product_grade", "quantity", "unit_price", "total",
+    "total_amount",
 }
 
 GRN_REQUIRED_COLUMNS = {
-    "grn_id", "po_number", "supplier_id", "receipt_date",
-    "sku", "quantity_received", "condition",
+    "gr_number", "po_number", "invoice_number", "supplier_id",
+    "date_received", "received_by",
+    "sku", "description", "product_grade", "quantity", "unit_price", "total",
 }
 
 
@@ -62,6 +62,10 @@ def ingest_from_csv(
         IngestValidationError: If required columns are missing from any file.
         FileNotFoundError: If a specified file does not exist.
     """
+    # Validate file existence before doing any parsing
+    for path in filter(None, [invoice_path, po_path, grn_path]):
+        if not Path(path).exists():
+            raise FileNotFoundError(f"Required data file not found: {path}")
     raise NotImplementedError
 
 

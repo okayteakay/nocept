@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 
 from pydantic import BaseModel
 
 from config.settings import AppConfig
-from models.exception import ExceptionType, InvoiceException, LineItemVariance
+from models.exception import InvoiceException, LineItemVariance
+from models.exception_record import ExceptionType
 from models.grn import GoodsReceiptNote
 from models.invoice import Invoice
 from models.purchase_order import PurchaseOrder
@@ -20,7 +20,7 @@ class ClassificationResult(BaseModel):
 
     exception_types: list[ExceptionType]
     line_variances: list[LineItemVariance]
-    total_variance_usd: Decimal
+    total_variance_usd: float
     informal_modification_signals: list[str]
     """Human-readable strings explaining why informal modification is suspected."""
 
@@ -35,21 +35,22 @@ def classify_exception(
     """Perform three-way matching and classify all detected mismatch types.
 
     Steps:
-    1. Check for missing GRN → MISSING_RECEIPT
+    1. Check for missing GRN → MISSING_GOODS_RECEIPT
     2. Check for duplicate submission against existing Redis records (if store provided)
     3. Compute per-line variances between invoice and PO
-    4. Classify price, quantity, tax, freight, and currency variances
-    5. Apply informal-modification heuristics to line variances
-    6. Return aggregated ClassificationResult
+    4. Classify price variances outside tolerance → PRICE_VARIANCE
+    5. Classify quantity variances outside tolerance → QUANTITY_VARIANCE
+    6. Apply informal-modification heuristics → INFORMAL_MODIFICATION
 
     Heuristics for INFORMAL_MODIFICATION:
     - SKU on invoice not present on PO (new SKU substitution)
-    - Partial quantity on one PO SKU with a compensating new SKU at a higher price
-    - Grade/tier shift: description contains "Grade A" on PO but "Grade B" on invoice
+    - Partial quantity shortfall on PO SKU paired with a new invoice SKU
+    - Product grade/tier change on a shared SKU
+    - Expedited shipping surcharge (SHIP-EXP) added without PO authorization
 
     Args:
         invoice: The supplier invoice to validate.
-        po: The internal Purchase Order it references.
+        po: The Purchase Order it references.
         grn: The Goods Receipt Note, or None if not yet received.
         config: AppConfig for tolerance thresholds.
         store: Optional RedisStateStore for duplicate detection.
@@ -57,7 +58,85 @@ def classify_exception(
     Returns:
         ClassificationResult with all detected exception types and variances.
     """
-    raise NotImplementedError
+    exception_types: list[ExceptionType] = []
+
+    # 1. Missing GRN
+    if grn is None:
+        exception_types.append(ExceptionType.MISSING_GOODS_RECEIPT)
+        logger.debug("Invoice %s: missing GRN for PO %s", invoice.invoice_number, po.po_number)
+
+    # 2. Duplicate detection (requires store)
+    if store is not None and _check_duplicate(invoice, store):
+        exception_types.append(ExceptionType.DUPLICATE_INVOICE)
+        logger.info(
+            "Invoice %s flagged as duplicate for supplier %s",
+            invoice.invoice_number,
+            invoice.supplier_id,
+        )
+        # Return early — no line-level analysis needed for duplicates
+        return ClassificationResult(
+            exception_types=exception_types,
+            line_variances=[],
+            total_variance_usd=0.0,
+            informal_modification_signals=[],
+        )
+
+    # 3. Compute per-line variances
+    variances = _compute_line_variances(invoice, po)
+
+    # 4. Price variance — any non-new SKU with |price delta| > tolerance
+    price_variances = [
+        v
+        for v in variances
+        if (
+            not v.is_new_sku
+            and v.price_delta_pct is not None
+            and abs(v.price_delta_pct) > config.price_tolerance_pct
+        )
+    ]
+    if price_variances:
+        exception_types.append(ExceptionType.PRICE_VARIANCE)
+        logger.debug(
+            "Invoice %s: %d price variance line(s)", invoice.invoice_number, len(price_variances)
+        )
+
+    # 5. Quantity variance — any non-new SKU with quantity delta > tolerance (as % of PO qty)
+    qty_variances = [
+        v
+        for v in variances
+        if (
+            not v.is_new_sku
+            and v.quantity_delta is not None
+            and v.po_quantity is not None
+            and v.po_quantity > 0
+            and abs(v.quantity_delta) / v.po_quantity > config.qty_tolerance_pct
+        )
+    ]
+    if qty_variances:
+        exception_types.append(ExceptionType.QUANTITY_VARIANCE)
+        logger.debug(
+            "Invoice %s: %d quantity variance line(s)", invoice.invoice_number, len(qty_variances)
+        )
+
+    # 6. Informal modification heuristics
+    signals = _detect_informal_modification_signals(variances, po, invoice)
+    if signals:
+        exception_types.append(ExceptionType.INFORMAL_MODIFICATION)
+        logger.debug(
+            "Invoice %s: informal modification signals: %s",
+            invoice.invoice_number,
+            signals,
+        )
+
+    # Dollar variance: absolute difference between invoice and PO totals
+    total_variance_usd = round(abs(invoice.total_amount - po.total_amount), 2)
+
+    return ClassificationResult(
+        exception_types=exception_types,
+        line_variances=variances,
+        total_variance_usd=total_variance_usd,
+        informal_modification_signals=signals,
+    )
 
 
 def _compute_line_variances(
@@ -66,8 +145,10 @@ def _compute_line_variances(
 ) -> list[LineItemVariance]:
     """Build a LineItemVariance for every SKU present on the invoice or PO.
 
-    For SKUs on the invoice but not the PO, is_new_sku=True.
-    For SKUs on the PO but not the invoice, invoice_quantity=None.
+    For SKUs on the invoice but not the PO, ``is_new_sku=True``.
+    For SKUs on the PO but missing from the invoice, ``invoice_quantity=None``.
+    Expedited shipping lines (SKU "SHIP-EXP" or description containing
+    "expedited") are tagged ``is_expedited_shipping=True``.
 
     Args:
         invoice: The supplier invoice.
@@ -76,7 +157,48 @@ def _compute_line_variances(
     Returns:
         List of LineItemVariance, one per unique SKU across both documents.
     """
-    raise NotImplementedError
+    all_skus = {item.sku for item in invoice.line_items} | {item.sku for item in po.line_items}
+    variances: list[LineItemVariance] = []
+
+    for sku in sorted(all_skus):  # stable ordering
+        inv_item = invoice.line_item_by_sku(sku)
+        po_item = po.line_item_by_sku(sku)
+
+        quantity_delta: int | None = None
+        price_delta_pct: float | None = None
+
+        if inv_item is not None and po_item is not None:
+            quantity_delta = inv_item.quantity - po_item.quantity
+            if po_item.unit_price != 0:
+                price_delta_pct = (
+                    inv_item.unit_price - po_item.unit_price
+                ) / po_item.unit_price
+
+        is_new_sku = inv_item is not None and po_item is None
+
+        # Expedited shipping: exact SKU match or description keyword
+        ref_item = inv_item or po_item
+        is_expedited = sku == "SHIP-EXP" or (
+            ref_item is not None
+            and "expedited" in ref_item.description.lower()
+        )
+
+        variances.append(
+            LineItemVariance(
+                sku=sku,
+                description=(inv_item or po_item).description,  # type: ignore[union-attr]
+                po_quantity=po_item.quantity if po_item else None,
+                invoice_quantity=inv_item.quantity if inv_item else None,
+                po_unit_price=po_item.unit_price if po_item else None,
+                invoice_unit_price=inv_item.unit_price if inv_item else None,
+                quantity_delta=quantity_delta,
+                price_delta_pct=price_delta_pct,
+                is_new_sku=is_new_sku,
+                is_expedited_shipping=is_expedited,
+            )
+        )
+
+    return variances
 
 
 def _detect_informal_modification_signals(
@@ -86,34 +208,103 @@ def _detect_informal_modification_signals(
 ) -> list[str]:
     """Scan line variances for patterns suggesting an undocumented modification.
 
-    Returns a list of human-readable signal descriptions. An empty list means
-    no informal modification signals were detected.
+    Returns human-readable signal descriptions. An empty list means no signals.
 
     Signals checked:
-    - New SKU on invoice not on PO
-    - Partial quantity shortfall on PO SKU paired with a new SKU (substitution pattern)
-    - Description grade/tier change (e.g., "Grade A" → "Grade B")
-    - Total invoice > total PO despite same or fewer items (price uplift)
+    1. New non-expedited SKU on invoice not on PO (substitution)
+    2. Expedited shipping surcharge added without PO authorization
+    3. Quantity shortfall on a PO SKU paired with a new invoice SKU (swap pattern)
+    4. Product grade change on a shared SKU (``product_grade`` field differs)
+    5. Invoice total exceeds PO total with no new SKUs (pure price uplift ≥ 1%)
 
     Args:
-        variances: Computed line variances.
+        variances: Computed line variances from ``_compute_line_variances``.
         po: The Purchase Order.
         invoice: The supplier invoice.
 
     Returns:
         List of signal description strings.
     """
-    raise NotImplementedError
+    signals: list[str] = []
+
+    new_non_shipping_skus = [
+        v for v in variances if v.is_new_sku and not v.is_expedited_shipping
+    ]
+    expedited_skus = [v for v in variances if v.is_expedited_shipping and v.is_new_sku]
+
+    # Signal 1: New substitute SKU
+    for v in new_non_shipping_skus:
+        signals.append(
+            f"Invoice contains SKU {v.sku!r} ({v.description!r}) not present on PO"
+        )
+
+    # Signal 2: Expedited shipping surcharge added
+    for v in expedited_skus:
+        signals.append(
+            f"Expedited shipping surcharge SKU {v.sku!r} added to invoice — not on PO"
+        )
+
+    # Signal 3: Substitution swap pattern — PO SKU short-shipped + new SKU appeared
+    shortfall_skus = [
+        v
+        for v in variances
+        if (
+            not v.is_new_sku
+            and v.quantity_delta is not None
+            and v.quantity_delta < 0  # fewer than ordered
+        )
+    ]
+    if shortfall_skus and new_non_shipping_skus:
+        for short_v in shortfall_skus:
+            signals.append(
+                f"Substitution pattern: PO SKU {short_v.sku!r} invoiced at "
+                f"{short_v.invoice_quantity} vs ordered {short_v.po_quantity} "
+                f"({-short_v.quantity_delta} unit(s) substituted with new SKU)"
+            )
+
+    # Signal 4: Product grade/tier change on shared SKUs
+    for v in variances:
+        if v.is_new_sku:
+            continue
+        inv_item = invoice.line_item_by_sku(v.sku)
+        po_item = po.line_item_by_sku(v.sku)
+        if (
+            inv_item is not None
+            and po_item is not None
+            and inv_item.product_grade != po_item.product_grade
+        ):
+            signals.append(
+                f"Product grade changed for SKU {v.sku!r}: "
+                f"PO grade {po_item.product_grade!r} → invoice grade {inv_item.product_grade!r}"
+            )
+
+    # Signal 5: Pure price uplift (no new SKUs, invoice > PO by ≥ 1%)
+    if not new_non_shipping_skus and not expedited_skus and invoice.total_amount > po.total_amount:
+        uplift_pct = (invoice.total_amount - po.total_amount) / po.total_amount * 100
+        if uplift_pct >= 1.0:
+            signals.append(
+                f"Invoice total ${invoice.total_amount:,.2f} exceeds PO total "
+                f"${po.total_amount:,.2f} ({uplift_pct:.1f}% uplift) with no new SKUs"
+            )
+
+    return signals
 
 
 def _check_duplicate(invoice: Invoice, store: RedisStateStore) -> bool:
-    """Return True if an exception for this invoice ID already exists in Redis.
+    """Return True if an exception for this invoice number already exists in Redis.
+
+    Loads all exceptions for the same supplier and compares invoice numbers.
+    Suitable for datasets of moderate size; for high-volume production use a
+    dedicated ``invoice_index:<invoice_number>`` key instead.
 
     Args:
         invoice: The invoice to check.
         store: The Redis state store to query.
 
     Returns:
-        True if a duplicate is detected.
+        True if a prior exception with the same invoice number is found.
     """
-    raise NotImplementedError
+    existing = store.list_by_supplier(invoice.supplier_id)
+    return any(
+        e.invoice.invoice_number == invoice.invoice_number for e in existing
+    )
