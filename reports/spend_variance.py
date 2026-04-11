@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import csv
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -47,7 +47,7 @@ class SpendVarianceLineItem(BaseModel):
 class SpendVarianceReport(BaseModel):
     """Full spend variance report for a reporting period."""
 
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     period_start: date
     period_end: date
     total_documented_spend: Decimal

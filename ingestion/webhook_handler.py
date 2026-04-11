@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
@@ -116,4 +116,4 @@ async def health() -> dict:
     Returns:
         Dict with "status": "ok" and the current UTC timestamp.
     """
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}

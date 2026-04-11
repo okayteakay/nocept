@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 
@@ -49,7 +49,7 @@ class ResolutionMemo(BaseModel):
     summary: str
     evidence: list[EvidenceItem] = Field(default_factory=list)
     recommended_po_adjustment: Decimal | None = None
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Resolution(BaseModel):
@@ -57,6 +57,6 @@ class Resolution(BaseModel):
 
     exception_id: str
     memo: ResolutionMemo
-    resolved_at: datetime = Field(default_factory=datetime.utcnow)
+    resolved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     resolved_by: str = "agent"  # "agent" or an analyst user ID
     final_state: ExceptionState

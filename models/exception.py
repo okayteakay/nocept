@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 
@@ -61,8 +61,8 @@ class InvoiceException(BaseModel):
     state: ExceptionState = ExceptionState.RECEIVED
     line_variances: list[LineItemVariance] = Field(default_factory=list)
     total_variance_usd: Decimal = Decimal("0")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict = Field(default_factory=dict)
 
     def has_exception_type(self, exc_type: ExceptionType) -> bool:
@@ -71,4 +71,4 @@ class InvoiceException(BaseModel):
 
     def mark_updated(self) -> None:
         """Update the updated_at timestamp to now."""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
