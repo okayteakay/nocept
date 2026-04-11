@@ -1,0 +1,320 @@
+{
+  "company_name": "Meridian Corp",
+  "buyers": [
+    {"name": "Sarah Chen", "email": "sarah.chen@meridiancorp.com", "department": "Procurement", "cost_center": "CC-1001"},
+    {"name": "David Park", "email": "david.park@meridiancorp.com", "department": "Facilities", "cost_center": "CC-1002"},
+    {"name": "Rachel Gomez", "email": "rachel.gomez@meridiancorp.com", "department": "Operations", "cost_center": "CC-1003"},
+    {"name": "Kevin Walsh", "email": "kevin.walsh@meridiancorp.com", "department": "Manufacturing", "cost_center": "CC-1004"},
+    {"name": "Priya Nair", "email": "priya.nair@meridiancorp.com", "department": "R&D", "cost_center": "CC-1005"},
+    {"name": "James Liu", "email": "james.liu@meridiancorp.com", "department": "Warehouse", "cost_center": "CC-1006"},
+    {"name": "Maria Santos", "email": "maria.santos@meridiancorp.com", "department": "Admin", "cost_center": "CC-1007"},
+    {"name": "Tom Bradley", "email": "tom.bradley@meridiancorp.com", "department": "Maintenance", "cost_center": "CC-1008"}
+  ],
+  "warehouse_receivers": [
+    "Mike Thompson", "Linda Reyes", "Carlos Diaz", "Anita Patel", "Greg Foster"
+  ],
+  "suppliers": [
+    {
+      "supplier_id": "SUP-001",
+      "name": "Apex Paper Co",
+      "contact_person": "John Martinez",
+      "contact_email": "john.martinez@apexpaper.com",
+      "phone": "+1-555-0101",
+      "category": "Office Supplies",
+      "products": [
+        {
+          "product_category": "Copy Paper A4",
+          "grades": [
+            {"sku": "AP-CPA-STD", "description": "A4 Copy Paper Standard", "grade": "Standard", "unit_price": 42.00},
+            {"sku": "AP-CPA-PRM", "description": "A4 Copy Paper Premium", "grade": "Premium", "unit_price": 58.00},
+            {"sku": "AP-CPA-ULT", "description": "A4 Copy Paper Ultra", "grade": "Ultra", "unit_price": 75.00}
+          ]
+        },
+        {
+          "product_category": "Cardstock",
+          "grades": [
+            {"sku": "AP-CSK-STD", "description": "Cardstock Standard 80lb", "grade": "Standard", "unit_price": 65.00},
+            {"sku": "AP-CSK-PRM", "description": "Cardstock Premium 100lb", "grade": "Premium", "unit_price": 89.00}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-002",
+      "name": "SteelCore Industries",
+      "contact_person": "Robert Nguyen",
+      "contact_email": "r.nguyen@steelcore.com",
+      "phone": "+1-555-0102",
+      "category": "Raw Materials",
+      "products": [
+        {
+          "product_category": "Steel Sheets",
+          "grades": [
+            {"sku": "SC-SHT-COM", "description": "Steel Sheet Commercial Grade", "grade": "Commercial", "unit_price": 120.00},
+            {"sku": "SC-SHT-IND", "description": "Steel Sheet Industrial Grade", "grade": "Industrial", "unit_price": 165.00},
+            {"sku": "SC-SHT-AER", "description": "Steel Sheet Aerospace Grade", "grade": "Aerospace", "unit_price": 240.00}
+          ]
+        },
+        {
+          "product_category": "Steel Rods",
+          "grades": [
+            {"sku": "SC-ROD-COM", "description": "Steel Rod Commercial 12mm", "grade": "Commercial", "unit_price": 85.00},
+            {"sku": "SC-ROD-IND", "description": "Steel Rod Industrial 12mm", "grade": "Industrial", "unit_price": 118.00}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-003",
+      "name": "BrightChem Solutions",
+      "contact_person": "Amanda Foster",
+      "contact_email": "a.foster@brightchem.com",
+      "phone": "+1-555-0103",
+      "category": "Chemicals",
+      "products": [
+        {
+          "product_category": "Floor Cleaner",
+          "grades": [
+            {"sku": "BC-FLC-STD", "description": "Floor Cleaner Standard 5L", "grade": "Standard", "unit_price": 18.00},
+            {"sku": "BC-FLC-PRO", "description": "Floor Cleaner Professional 5L", "grade": "Professional", "unit_price": 28.00},
+            {"sku": "BC-FLC-IND", "description": "Floor Cleaner Industrial 5L", "grade": "Industrial", "unit_price": 42.00}
+          ]
+        },
+        {
+          "product_category": "Disinfectant",
+          "grades": [
+            {"sku": "BC-DIS-STD", "description": "Surface Disinfectant Standard 1L", "grade": "Standard", "unit_price": 22.00},
+            {"sku": "BC-DIS-HGR", "description": "Surface Disinfectant Hospital-Grade 1L", "grade": "Hospital-Grade", "unit_price": 38.00}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-004",
+      "name": "TechParts Direct",
+      "contact_person": "Steven Kim",
+      "contact_email": "s.kim@techpartsdirect.com",
+      "phone": "+1-555-0104",
+      "category": "Electronics",
+      "products": [
+        {
+          "product_category": "Circuit Boards",
+          "grades": [
+            {"sku": "TP-PCB-STD", "description": "PCB Standard FR4", "grade": "Standard", "unit_price": 34.00},
+            {"sku": "TP-PCB-ENH", "description": "PCB Enhanced Multi-Layer", "grade": "Enhanced", "unit_price": 52.00},
+            {"sku": "TP-PCB-MIL", "description": "PCB Military-Spec", "grade": "Military-Spec", "unit_price": 89.00}
+          ]
+        },
+        {
+          "product_category": "Capacitors",
+          "grades": [
+            {"sku": "TP-CAP-STD", "description": "Ceramic Capacitor Standard", "grade": "Standard", "unit_price": 8.00},
+            {"sku": "TP-CAP-HIT", "description": "Ceramic Capacitor High-Tolerance", "grade": "High-Tolerance", "unit_price": 14.50}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-005",
+      "name": "Pacific Packaging",
+      "contact_person": "Lisa Tran",
+      "contact_email": "l.tran@pacificpackaging.com",
+      "phone": "+1-555-0105",
+      "category": "Packaging",
+      "products": [
+        {
+          "product_category": "Corrugated Boxes",
+          "grades": [
+            {"sku": "PP-BOX-SGL", "description": "Corrugated Box Single-Wall 12x12x12", "grade": "Single-Wall", "unit_price": 3.20},
+            {"sku": "PP-BOX-DBL", "description": "Corrugated Box Double-Wall 12x12x12", "grade": "Double-Wall", "unit_price": 5.50},
+            {"sku": "PP-BOX-TRP", "description": "Corrugated Box Triple-Wall 12x12x12", "grade": "Triple-Wall", "unit_price": 8.75}
+          ]
+        },
+        {
+          "product_category": "Stretch Wrap",
+          "grades": [
+            {"sku": "PP-SWR-STD", "description": "Stretch Wrap Standard 18in", "grade": "Standard", "unit_price": 12.00},
+            {"sku": "PP-SWR-AST", "description": "Stretch Wrap Anti-Static 18in", "grade": "Anti-Static", "unit_price": 19.00}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-006",
+      "name": "GreenLeaf Office Supplies",
+      "contact_person": "Nancy White",
+      "contact_email": "n.white@greenleafoffice.com",
+      "phone": "+1-555-0106",
+      "category": "Office Supplies",
+      "products": [
+        {
+          "product_category": "Toner Cartridges",
+          "grades": [
+            {"sku": "GL-TNR-CMP", "description": "Toner Cartridge Compatible", "grade": "Compatible", "unit_price": 45.00},
+            {"sku": "GL-TNR-OEM", "description": "Toner Cartridge OEM Standard", "grade": "OEM-Standard", "unit_price": 78.00},
+            {"sku": "GL-TNR-OXL", "description": "Toner Cartridge OEM XL", "grade": "OEM-XL", "unit_price": 110.00}
+          ]
+        },
+        {
+          "product_category": "Printer Paper Letter",
+          "grades": [
+            {"sku": "GL-PPR-ECO", "description": "Printer Paper Letter Economy", "grade": "Economy", "unit_price": 32.00},
+            {"sku": "GL-PPR-STD", "description": "Printer Paper Letter Standard", "grade": "Standard", "unit_price": 44.00}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-007",
+      "name": "ProBuild Materials",
+      "contact_person": "Frank Delgado",
+      "contact_email": "f.delgado@probuild.com",
+      "phone": "+1-555-0107",
+      "category": "Construction",
+      "products": [
+        {
+          "product_category": "Plywood",
+          "grades": [
+            {"sku": "PB-PLY-CON", "description": "Plywood Construction Grade 4x8", "grade": "Construction", "unit_price": 32.00},
+            {"sku": "PB-PLY-MAR", "description": "Plywood Marine Grade 4x8", "grade": "Marine", "unit_price": 48.00},
+            {"sku": "PB-PLY-AIR", "description": "Plywood Aircraft Grade 4x8", "grade": "Aircraft", "unit_price": 72.00}
+          ]
+        },
+        {
+          "product_category": "Concrete Mix",
+          "grades": [
+            {"sku": "PB-CMX-STD", "description": "Concrete Mix Standard 80lb", "grade": "Standard", "unit_price": 7.50},
+            {"sku": "PB-CMX-HST", "description": "Concrete Mix High-Strength 80lb", "grade": "High-Strength", "unit_price": 12.80}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-008",
+      "name": "MedSupply Corp",
+      "contact_person": "Diane Chang",
+      "contact_email": "d.chang@medsupply.com",
+      "phone": "+1-555-0108",
+      "category": "Medical Supplies",
+      "products": [
+        {
+          "product_category": "Exam Gloves",
+          "grades": [
+            {"sku": "MS-GLV-STD", "description": "Nitrile Exam Gloves Standard Box/100", "grade": "Standard", "unit_price": 9.50},
+            {"sku": "MS-GLV-SRG", "description": "Nitrile Surgical Gloves Box/50", "grade": "Surgical", "unit_price": 16.00},
+            {"sku": "MS-GLV-STR", "description": "Sterile Surgical Gloves Box/25", "grade": "Sterile-Surgical", "unit_price": 24.00}
+          ]
+        },
+        {
+          "product_category": "Gauze Pads",
+          "grades": [
+            {"sku": "MS-GAU-STD", "description": "Gauze Pads Standard 4x4 Pack/200", "grade": "Standard", "unit_price": 5.20},
+            {"sku": "MS-GAU-PRM", "description": "Gauze Pads Premium Sterile 4x4 Pack/100", "grade": "Premium-Sterile", "unit_price": 9.80}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-009",
+      "name": "FreshFlow Beverages",
+      "contact_person": "Mark Ellis",
+      "contact_email": "m.ellis@freshflow.com",
+      "phone": "+1-555-0109",
+      "category": "Break Room Supplies",
+      "products": [
+        {
+          "product_category": "Bottled Water",
+          "grades": [
+            {"sku": "FF-WAT-VAL", "description": "Bottled Water Value Case/24", "grade": "Value", "unit_price": 6.00},
+            {"sku": "FF-WAT-SPR", "description": "Bottled Water Premium Spring Case/24", "grade": "Premium-Spring", "unit_price": 11.00},
+            {"sku": "FF-WAT-ALK", "description": "Bottled Water Alkaline Case/24", "grade": "Alkaline", "unit_price": 16.50}
+          ]
+        },
+        {
+          "product_category": "Coffee Beans",
+          "grades": [
+            {"sku": "FF-COF-STD", "description": "Coffee Beans Standard Blend 5lb", "grade": "Standard", "unit_price": 14.00},
+            {"sku": "FF-COF-PRM", "description": "Coffee Beans Premium Roast 5lb", "grade": "Premium", "unit_price": 22.00},
+            {"sku": "FF-COF-SNG", "description": "Coffee Beans Single-Origin 5lb", "grade": "Single-Origin", "unit_price": 35.00}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-010",
+      "name": "CoreFabric Textiles",
+      "contact_person": "Wendy Brooks",
+      "contact_email": "w.brooks@corefabric.com",
+      "phone": "+1-555-0110",
+      "category": "Textiles",
+      "products": [
+        {
+          "product_category": "Work Uniforms",
+          "grades": [
+            {"sku": "CF-UNI-BAS", "description": "Work Uniform Basic Poly-Cotton", "grade": "Basic", "unit_price": 28.00},
+            {"sku": "CF-UNI-RNF", "description": "Work Uniform Reinforced", "grade": "Reinforced", "unit_price": 42.00},
+            {"sku": "CF-UNI-FRR", "description": "Work Uniform FR-Rated", "grade": "FR-Rated", "unit_price": 68.00}
+          ]
+        },
+        {
+          "product_category": "Shop Towels",
+          "grades": [
+            {"sku": "CF-TWL-STD", "description": "Shop Towels Standard Pack/50", "grade": "Standard", "unit_price": 42.50},
+            {"sku": "CF-TWL-HVY", "description": "Shop Towels Heavy-Duty Pack/50", "grade": "Heavy-Duty", "unit_price": 72.50}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-011",
+      "name": "PrecisionTools Inc",
+      "contact_person": "Gary Hammond",
+      "contact_email": "g.hammond@precisiontools.com",
+      "phone": "+1-555-0111",
+      "category": "Tools",
+      "products": [
+        {
+          "product_category": "Drill Bits Set",
+          "grades": [
+            {"sku": "PT-DRL-HSS", "description": "Drill Bit Set HSS Standard", "grade": "HSS-Standard", "unit_price": 48.00},
+            {"sku": "PT-DRL-COB", "description": "Drill Bit Set Cobalt", "grade": "Cobalt", "unit_price": 82.00},
+            {"sku": "PT-DRL-CRB", "description": "Drill Bit Set Carbide", "grade": "Carbide", "unit_price": 135.00}
+          ]
+        },
+        {
+          "product_category": "Wrench Set",
+          "grades": [
+            {"sku": "PT-WRN-CHR", "description": "Wrench Set Chrome Vanadium", "grade": "Chrome-Vanadium", "unit_price": 64.00},
+            {"sku": "PT-WRN-IND", "description": "Wrench Set Industrial", "grade": "Industrial", "unit_price": 112.00}
+          ]
+        }
+      ]
+    },
+    {
+      "supplier_id": "SUP-012",
+      "name": "SafeGuard PPE",
+      "contact_person": "Teresa Ruiz",
+      "contact_email": "t.ruiz@safeguardppe.com",
+      "phone": "+1-555-0112",
+      "category": "Safety Equipment",
+      "products": [
+        {
+          "product_category": "Safety Goggles",
+          "grades": [
+            {"sku": "SG-GOG-BAS", "description": "Safety Goggles Basic", "grade": "Basic", "unit_price": 8.50},
+            {"sku": "SG-GOG-IMP", "description": "Safety Goggles Impact-Rated", "grade": "Impact-Rated", "unit_price": 15.00},
+            {"sku": "SG-GOG-CHM", "description": "Safety Goggles Chemical-Splash", "grade": "Chemical-Splash", "unit_price": 24.00}
+          ]
+        },
+        {
+          "product_category": "Hard Hats",
+          "grades": [
+            {"sku": "SG-HAT-STD", "description": "Hard Hat Standard Type I", "grade": "Standard", "unit_price": 12.00},
+            {"sku": "SG-HAT-VNT", "description": "Hard Hat Vented Type I", "grade": "Vented", "unit_price": 19.00},
+            {"sku": "SG-HAT-FBR", "description": "Hard Hat Full-Brim Type II", "grade": "Full-Brim", "unit_price": 28.00}
+          ]
+        }
+      ]
+    }
+  ]
+}
