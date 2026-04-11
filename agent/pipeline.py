@@ -74,3 +74,48 @@ def run_pipeline(
         PipelineResult with the final exception, resolution, and timing.
     """
     raise NotImplementedError
+
+
+def detect_and_enqueue_exception(
+    invoice: Invoice,
+    po: PurchaseOrder,
+    grn: GoodsReceiptNote | None,
+    store: RedisStateStore,
+    audit: AuditLogger,
+    config: AppConfig,
+) -> InvoiceException | None:
+    """Step 7 intake helper: detect, persist, and audit a new exception.
+
+    Returns None for straight-through invoices (no exception types).
+    """
+    classification = classify_exception(
+        invoice=invoice,
+        po=po,
+        grn=grn,
+        config=config,
+        store=store,
+    )
+    if not classification.exception_types:
+        return None
+
+    exc = InvoiceException(
+        invoice=invoice,
+        purchase_order=po,
+        grn=grn,
+        exception_types=classification.exception_types,
+        line_variances=classification.line_variances,
+        total_variance_usd=classification.total_variance_usd,
+        state=ExceptionState.RECEIVED,
+    )
+    store.save(exc)
+    audit.log_detection(exc)
+
+    logger.info(
+        "Detected exception %s (invoice=%s, po=%s, types=%s) and enqueued in state=%s",
+        exc.exception_id,
+        invoice.invoice_number,
+        po.po_number,
+        [t.value for t in exc.exception_types],
+        exc.state.value,
+    )
+    return exc

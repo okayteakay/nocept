@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 
 import redis
 
@@ -12,6 +13,8 @@ from state.machine import ExceptionStateMachine, InvalidTransitionError  # noqa:
 logger = logging.getLogger(__name__)
 
 _STATE_INDEX_PREFIX = "state_index:"
+_QUEUE_RECORD_PREFIX = "exception_queue:"
+_QUEUE_INDEX_KEY = "exception_queue:index"
 
 
 class RedisStateStore:
@@ -76,6 +79,7 @@ class RedisStateStore:
         # State index
         state_key = f"{_STATE_INDEX_PREFIX}{exc.state.value}"
         self._r.sadd(state_key, exc.exception_id)
+        self._upsert_queue_record(exc)
 
         logger.debug(
             "Saved exception %s (state=%s, supplier=%s)",
@@ -256,3 +260,68 @@ class RedisStateStore:
             "informal_modification_count": informal_count,
             "avg_price_uplift_pct": avg_price_uplift_pct,
         }
+
+    # ------------------------------------------------------------------
+    # Queue helpers
+    # ------------------------------------------------------------------
+
+    def get_queue_record(self, exception_id: str) -> dict[str, str] | None:
+        """Return the denormalized queue record for an exception, if present."""
+        key = f"{_QUEUE_RECORD_PREFIX}{exception_id}"
+        record = self._r.hgetall(key)
+        return record or None
+
+    def list_queue_ids(self) -> list[str]:
+        """Return exception IDs in queue order (oldest first)."""
+        members = self._r.zrange(_QUEUE_INDEX_KEY, 0, -1)
+        return [
+            m.decode() if isinstance(m, bytes) else m
+            for m in members
+        ]
+
+    def _upsert_queue_record(self, exc: InvoiceException) -> None:
+        """Persist a denormalized exception queue record for dashboard/triage.
+
+        Required fields mirror Step 7 of the implementation plan:
+        exception_id, po_number, invoice_number, supplier_id, exception_type,
+        variance_amount, variance_percentage, timestamp, status.
+        """
+        variance_amount = round(abs(exc.total_variance_usd), 2)
+        variance_pct = _variance_pct(exc)
+        queue_record = {
+            "exception_id": exc.exception_id,
+            "po_number": exc.purchase_order.po_number,
+            "invoice_number": exc.invoice.invoice_number,
+            "supplier_id": exc.invoice.supplier_id,
+            "exception_type": _primary_exception_type(exc),
+            "variance_amount": f"{variance_amount:.2f}",
+            "variance_percentage": f"{variance_pct:.2f}",
+            "timestamp": exc.created_at.isoformat(),
+            "status": exc.state.value,
+        }
+
+        record_key = f"{_QUEUE_RECORD_PREFIX}{exc.exception_id}"
+        self._r.hset(record_key, mapping=queue_record)
+        self._r.zadd(_QUEUE_INDEX_KEY, {exc.exception_id: _queue_score(exc)})
+
+
+def _primary_exception_type(exc: InvoiceException) -> str:
+    if not exc.exception_types:
+        return ExceptionType.NONE.value
+    return exc.exception_types[0].value
+
+
+def _variance_pct(exc: InvoiceException) -> float:
+    po_total = exc.purchase_order.total_amount
+    if po_total <= 0:
+        return 0.0
+    variance_amount = abs(exc.total_variance_usd)
+    return (variance_amount / po_total) * 100
+
+
+def _queue_score(exc: InvoiceException) -> float:
+    # Time-based queue ordering; keeps ingest order stable.
+    created_at = exc.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    return created_at.timestamp()

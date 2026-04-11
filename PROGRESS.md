@@ -91,8 +91,13 @@ Last updated: 2026-04-11
 
 ### Step 7 — Write exceptions to Redis queue ✅
 - ✅ `state/redis_backend.py` — exception persistence with state machine validation (see Step 4)
-- 🔧 `audit/audit_logger.py` — `AuditLogger` + `AuditEvent` scaffolded (Redis Streams append/read stubs)
-- ⬜ Redis Streams event logged on first ingest (requires pipeline integration)
+- ✅ `state/redis_backend.py` — denormalized exception queue records persisted:
+  - ✅ `exception_id`, `po_number`, `invoice_number`, `supplier_id`
+  - ✅ `exception_type`, `variance_amount`, `variance_percentage`
+  - ✅ `timestamp`, `status` (`received` on initial ingest)
+- ✅ `clients/redis_client.py` — Redis Streams operations implemented (`XADD`, `XRANGE`, `XREADGROUP`, `XGROUP`, `XACK`)
+- ✅ `audit/audit_logger.py` — structured audit event persistence + trail retrieval implemented
+- ✅ `agent/pipeline.py` — `detect_and_enqueue_exception()` logs detection event as first audit entry
 
 ---
 
