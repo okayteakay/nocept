@@ -1,0 +1,98 @@
+[
+  {
+    "supplier_id": "SUP-001",
+    "name": "Apex Paper Co",
+    "contact_person": "John Martinez",
+    "contact_email": "john.martinez@apexpaper.com",
+    "phone": "+1-555-0101",
+    "category": "Office Supplies"
+  },
+  {
+    "supplier_id": "SUP-002",
+    "name": "SteelCore Industries",
+    "contact_person": "Robert Nguyen",
+    "contact_email": "r.nguyen@steelcore.com",
+    "phone": "+1-555-0102",
+    "category": "Raw Materials"
+  },
+  {
+    "supplier_id": "SUP-003",
+    "name": "BrightChem Solutions",
+    "contact_person": "Amanda Foster",
+    "contact_email": "a.foster@brightchem.com",
+    "phone": "+1-555-0103",
+    "category": "Chemicals"
+  },
+  {
+    "supplier_id": "SUP-004",
+    "name": "TechParts Direct",
+    "contact_person": "Steven Kim",
+    "contact_email": "s.kim@techpartsdirect.com",
+    "phone": "+1-555-0104",
+    "category": "Electronics"
+  },
+  {
+    "supplier_id": "SUP-005",
+    "name": "Pacific Packaging",
+    "contact_person": "Lisa Tran",
+    "contact_email": "l.tran@pacificpackaging.com",
+    "phone": "+1-555-0105",
+    "category": "Packaging"
+  },
+  {
+    "supplier_id": "SUP-006",
+    "name": "GreenLeaf Office Supplies",
+    "contact_person": "Nancy White",
+    "contact_email": "n.white@greenleafoffice.com",
+    "phone": "+1-555-0106",
+    "category": "Office Supplies"
+  },
+  {
+    "supplier_id": "SUP-007",
+    "name": "ProBuild Materials",
+    "contact_person": "Frank Delgado",
+    "contact_email": "f.delgado@probuild.com",
+    "phone": "+1-555-0107",
+    "category": "Construction"
+  },
+  {
+    "supplier_id": "SUP-008",
+    "name": "MedSupply Corp",
+    "contact_person": "Diane Chang",
+    "contact_email": "d.chang@medsupply.com",
+    "phone": "+1-555-0108",
+    "category": "Medical Supplies"
+  },
+  {
+    "supplier_id": "SUP-009",
+    "name": "FreshFlow Beverages",
+    "contact_person": "Mark Ellis",
+    "contact_email": "m.ellis@freshflow.com",
+    "phone": "+1-555-0109",
+    "category": "Break Room Supplies"
+  },
+  {
+    "supplier_id": "SUP-010",
+    "name": "CoreFabric Textiles",
+    "contact_person": "Wendy Brooks",
+    "contact_email": "w.brooks@corefabric.com",
+    "phone": "+1-555-0110",
+    "category": "Textiles"
+  },
+  {
+    "supplier_id": "SUP-011",
+    "name": "PrecisionTools Inc",
+    "contact_person": "Gary Hammond",
+    "contact_email": "g.hammond@precisiontools.com",
+    "phone": "+1-555-0111",
+    "category": "Tools"
+  },
+  {
+    "supplier_id": "SUP-012",
+    "name": "SafeGuard PPE",
+    "contact_person": "Teresa Ruiz",
+    "contact_email": "t.ruiz@safeguardppe.com",
+    "phone": "+1-555-0112",
+    "category": "Safety Equipment"
+  }
+]
