@@ -31,7 +31,7 @@ htmlcov/
 .vscode/
 *.swp
 *.swo
-
+.claude
 # Data files (schema docs kept, generated data excluded)
 data/*.csv
 data/*.json
