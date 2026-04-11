@@ -1,4 +1,4 @@
-# Autonomous Invoice Exception Resolution Agent
+# Project Nocept: Autonomous Invoice Exception Resolution Agent
 
 An AI-powered agent that autonomously triages, researches, and resolves invoice-to-PO mismatches in enterprise Accounts Payable workflows — including discrepancies caused by undocumented offline order modifications.
 
