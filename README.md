@@ -137,7 +137,3 @@ receiptfinder/
 | `QTY_TOLERANCE_PCT` | `0.02` | Auto-approve quantity variance threshold (2%) |
 | `AUTO_RESOLVE_MAX_VARIANCE_USD` | `500` | Max USD variance for auto-resolution |
 | `LOG_LEVEL` | `INFO` | Python logging level |
-
-## Data Format
-
-See [data/README.md](data/README.md) for CSV schemas expected by the ingestion layer.
