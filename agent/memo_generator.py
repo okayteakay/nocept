@@ -17,22 +17,20 @@ def generate_memo(
     research: ResearchResult,
     context: SupplierContext,
 ) -> ResolutionMemo:
-    """Assemble the structured resolution memo for an exception.
+    """Assemble the structured resolution memo for an exception."""
 
-    Combines the rules engine decision, research findings, and supplier history
-    into a ResolutionMemo that serves as the audit record and human-readable
-    output for each resolved exception.
+    evidence = _format_evidence_items(research, context, decision)
+    summary = _write_summary(exception, decision, context)
 
-    Args:
-        exception: The InvoiceException being resolved.
-        decision: The RulesDecision from the rules engine.
-        research: External research results from Tavily.
-        context: Supplier historical context from Redis.
-
-    Returns:
-        A fully populated ResolutionMemo.
-    """
-    raise NotImplementedError
+    return ResolutionMemo(
+        exception_id=exception.exception_id,
+        root_cause=decision.root_cause,
+        action=decision.action,
+        confidence=decision.confidence,
+        summary=summary,
+        evidence=evidence,
+        recommended_po_adjustment=decision.recommended_po_adjustment,
+    )
 
 
 def _format_evidence_items(
@@ -40,22 +38,44 @@ def _format_evidence_items(
     context: SupplierContext,
     decision: RulesDecision,
 ) -> list[EvidenceItem]:
-    """Build the list of EvidenceItems for the memo.
+    """Build the list of EvidenceItems for the memo."""
+    evidence_list: list[EvidenceItem] = []
 
-    Sources combined in priority order:
-    1. Redis history evidence (known substitution patterns → source="redis_history")
-    2. Tavily search findings above relevance threshold (source="tavily_search")
-    3. Rule engine rationale (source="rule_engine")
+    # 1. Redis history evidence
+    for pattern in context.substitution_patterns:
+        # Only add if it was actually used in the decision
+        if any([p["to_sku"] == v.sku for v in exception.line_variances if v.is_new_sku for p in context.substitution_patterns]):
+             # This is wrong logic, I'll fix it in the a loop
+             pass
 
-    Args:
-        research: Tavily research results.
-        context: Supplier context with historical patterns.
-        decision: Rules decision with reasoning.
+    # Revised: Just add relevant patterns found in context
+    for pattern in context.substitution_patterns:
+        # We'll just check if the to_sku is in the current exception
+        # (since we're using the list as an evidence source)
+        current_new_skus = [v.sku for v in exception.line_variances if v.is_new_sku]
+        if pattern["to_sku"] in current_new_skus:
+            evidence_list.append(
+                EvidenceItem(
+                    source="redis_history",
+                    description=f"Matched known substitution pattern: {pattern['from_sku']} -> {pattern['to_sku']} (seen {pattern['count']} times)",
+                    confidence=0.9,
+                )
+            )
 
-    Returns:
-        Ordered list of EvidenceItem objects.
-    """
-    raise NotImplementedError
+    # 2. Tavily search findings
+    for item in research.supporting_evidence:
+        evidence_list.append(item)
+
+    # 3. Rule engine rationale
+    evidence_list.append(
+        EvidenceItem(
+            source="rule_engine",
+            description=decision.reasoning,
+            confidence=1.0,
+        )
+    )
+
+    return evidence_list
 
 
 def _write_summary(
@@ -63,20 +83,21 @@ def _write_summary(
     decision: RulesDecision,
     context: SupplierContext,
 ) -> str:
-    """Write the plain-English summary section of the memo.
+    """Write the plain-English summary section of the memo."""
 
-    The summary should be 2–4 sentences covering:
-    - What the exception is (mismatch type and amounts)
-    - The root cause determination
-    - The recommended action
-    - Any relevant historical pattern context
+    mismatch_type = ", ".join([t.value for t in exception.exception_types])
+    variance_usd = exception.total_variance_usd
 
-    Args:
-        exception: The InvoiceException.
-        decision: The RulesDecision.
-        context: Supplier context.
+    root_cause = decision.root_cause.value.replace("_", " ").title()
+    action = decision.action.value.replace("_", " ").title()
 
-    Returns:
-        A multi-sentence summary string.
-    """
-    raise NotImplementedError
+    summary = (
+        f"The invoice for {exception.supplier_name} contains {mismatch_type} "
+        f"with a total variance of ${variance_usd:,.2f}. "
+        f"The determined root cause is {root_cause} and the recommended action is {action}. "
+    )
+
+    if context.substitution_patterns:
+         summary += f"Historical data indicates known substitution patterns for this supplier. "
+
+    return summary

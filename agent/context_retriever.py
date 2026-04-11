@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+from datetime import datetime, timezone, timedelta
 
 from pydantic import BaseModel
 
-from models.exception import ExceptionType, InvoiceException
+from models.exception import ExceptionType, ExceptionState, InvoiceException
 from state.redis_backend import RedisStateStore
 
 logger = logging.getLogger(__name__)
@@ -44,48 +45,76 @@ def retrieve_supplier_context(
     Pulls resolved and escalated exceptions for the supplier from Redis,
     filters to the lookback window, and derives substitution pattern summaries
     and average price uplift metrics.
-
-    Args:
-        supplier_id: Supplier identifier.
-        store: The Redis state store.
-        lookback_days: How many calendar days of history to consider.
-
-    Returns:
-        SupplierContext with historical exceptions and derived pattern summaries.
     """
-    raise NotImplementedError
+    # Get all exceptions for the supplier
+    exceptions = store.list_by_supplier(supplier_id)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    recent_exceptions = [
+        e for e in exceptions
+        if e.updated_at >= cutoff and e.state in (ExceptionState.RESOLVED, ExceptionState.ESCALATED)
+    ]
+
+    substitution_patterns = _extract_substitution_patterns(recent_exceptions)
+    avg_uplift = _compute_average_price_uplift(recent_exceptions)
+
+    # Approximate exception rate if we have enough data
+    exception_rate = None
+    if len(exceptions) > 0:
+        exception_rate = len(recent_exceptions) / len(exceptions)
+
+    return SupplierContext(
+        supplier_id=supplier_id,
+        historical_exceptions=recent_exceptions,
+        substitution_patterns=substitution_patterns,
+        average_price_uplift_pct=avg_uplift,
+        exception_rate=exception_rate,
+    )
 
 
 def _extract_substitution_patterns(
     exceptions: list[InvoiceException],
 ) -> list[dict]:
-    """Derive substitution pattern summaries from a list of exceptions.
+    """Derive substitution pattern summaries from a list of exceptions."""
+    patterns: dict[tuple[str, str], list[float]] = {}
 
-    Identifies cases where an invoice contained a SKU not on the PO
-    (is_new_sku=True in LineItemVariance) and groups by (from_sku, to_sku) pairs.
+    for exc in exceptions:
+        if ExceptionType.INFORMAL_MODIFICATION not in exc.exception_types:
+            continue
 
-    Args:
-        exceptions: Historical InvoiceException objects for a supplier.
+        new_skus = [v for v in exc.line_variances if v.is_new_sku]
+        shortfalls = [v for v in exc.line_variances if not v.is_new_sku and v.quantity_delta is not None and v.quantity_delta < 0]
 
-    Returns:
-        List of pattern dicts, each with keys:
-        from_sku, to_sku, count, avg_price_uplift_pct.
-    """
-    raise NotImplementedError
+        for n_sku in new_skus:
+            for s_sku in shortfalls:
+                pair = (s_sku.sku, n_sku.sku)
+                uplift = n_sku.price_delta_pct or 0.0
+                patterns.setdefault(pair, []).append(uplift)
+
+    result = []
+    for (from_sku, to_sku), uplifts in patterns.items():
+        result.append({
+            "from_sku": from_sku,
+            "to_sku": to_sku,
+            "count": len(uplifts),
+            "avg_price_uplift_pct": sum(uplifts) / len(uplifts),
+        })
+
+    return result
 
 
 def _compute_average_price_uplift(
     exceptions: list[InvoiceException],
 ) -> float | None:
-    """Compute the average price uplift percentage across informal modification exceptions.
+    """Compute the average price uplift percentage across informal modification exceptions."""
+    uplifts = []
+    for exc in exceptions:
+        if ExceptionType.INFORMAL_MODIFICATION in exc.exception_types:
+            if exc.purchase_order.total_amount > 0:
+                uplift = (exc.invoice.total_amount - exc.purchase_order.total_amount) / exc.purchase_order.total_amount
+                uplifts.append(uplift)
 
-    Only considers exceptions classified as INFORMAL_MODIFICATION.
-    Returns None if there are no qualifying exceptions.
+    if not uplifts:
+        return None
 
-    Args:
-        exceptions: Historical InvoiceException objects.
-
-    Returns:
-        Average price uplift as a float (e.g. 0.067 for 6.7%), or None.
-    """
-    raise NotImplementedError
+    return sum(uplifts) / len(uplifts)

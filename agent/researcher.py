@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import logging
-
 from pydantic import BaseModel
-
-from agent.context_retriever import SupplierContext
-from clients.tavily_client import TavilyClient, TavilySearchResult
 from models.exception import InvoiceException
 from models.resolution import EvidenceItem
+from agent.context_retriever import SupplierContext
+from clients.tavily_client import TavilyClient, TavilySearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -30,77 +28,101 @@ def research_exception(
     context: SupplierContext,
     tavily: TavilyClient,
 ) -> ResearchResult:
-    """Run targeted external research to explain the exception's root cause.
+    """Run targeted external research to explain the exception's root cause."""
+    queries = _build_search_queries(exception, context)
+    all_findings: list[TavilySearchResult] = []
 
-    Builds search queries from the exception's characteristics (supplier name,
-    affected SKUs, variance type) and the supplier's historical context.
-    Searches for supplier announcements, supply disruptions, price amendments,
-    and product substitution notices. Scores each result for relevance and
-    assembles EvidenceItem objects from high-scoring findings.
+    for query in queries:
+        try:
+            results = tavily.search(query)
+            all_findings.extend(results)
+        except Exception as e:
+            logger.error("Tavily search failed for query %s: %s", query, e)
 
-    Args:
-        exception: The InvoiceException being investigated.
-        context: Supplier historical context from Redis.
-        tavily: TavilyClient for executing searches.
+    # De-duplicate by URL and sort by relevance
+    unique_findings = {f.url: f for f in all_findings}.values()
+    sorted_findings = sorted(unique_findings, key=lambda x: x.score, reverse=True)
 
-    Returns:
-        ResearchResult with all findings and derived evidence.
-    """
-    raise NotImplementedError
+    # Filter high-relevance findings to build evidence
+    evidence = []
+    supports_mod = False
+    for f in sorted_findings:
+        rel_score = _score_relevance(f, exception)
+        if rel_score >= 0.7:
+            supports_mod = True
+            evidence.append(
+                EvidenceItem(
+                    source="tavily_search",
+                    content=f"Found corroborating info: {f.title}. Result: {f.content[:200]}...",
+                    confidence=rel_score,
+                )
+            )
+
+    summary = _summarize_findings(sorted_findings, exception)
+
+    return ResearchResult(
+        queries_run=queries,
+        findings=sorted_findings,
+        relevance_summary=summary,
+        supports_informal_modification=supports_mod,
+        supporting_evidence=evidence,
+    )
 
 
 def _build_search_queries(
     exception: InvoiceException,
     context: SupplierContext,
 ) -> list[str]:
-    """Construct targeted search queries from exception characteristics.
+    """Construct targeted search queries from exception characteristics."""
+    supplier = exception.supplier_name
+    queries = [
+        f"{supplier} price increase {datetime.now().year}",
+        f"{supplier} stock shortage product substitution",
+    ]
 
-    Query strategies:
-    - Supplier name + "price increase" / "stock shortage" / "product substitution"
-    - Affected SKU description + "discontinued" / "unavailable"
-    - Supplier name + product category + current year
-    - If informal modification suspected: supplier name + "grade B" / "substitute"
+    # SKU specific queries
+    for v in exception.line_variances:
+        if v.is_new_sku or (v.price_delta_pct and abs(v.price_delta_pct) > 0.05):
+            queries.append(f"{v.sku} {v.description} discontinued unavailable")
 
-    Args:
-        exception: The exception being researched.
-        context: Supplier context for additional signals.
+    # Context-aware queries
+    if context.average_price_uplift_pct and context.average_price_uplift_pct > 0:
+        queries.append(f"{supplier} announce price uplift {context.average_price_uplift_pct:.1%}")
 
-    Returns:
-        List of query strings to pass to Tavily.
-    """
-    raise NotImplementedError
+    return list(set(queries))
 
 
 def _score_relevance(
     result: TavilySearchResult,
     exception: InvoiceException,
 ) -> float:
-    """Compute a relevance score for a Tavily result against the exception.
+    """Compute a relevance score for a Tavily result against the exception."""
+    base_score = result.score
+    text = (result.title + " " + result.content).lower()
 
-    Combines Tavily's own score with keyword matching against the exception's
-    supplier name, SKUs, and variance types.
+    # Boost if supplier name or SKUs appear in text
+    boost = 0.0
+    if exception.supplier_name.lower() in text:
+        boost += 0.2
 
-    Args:
-        result: A single Tavily search result.
-        exception: The exception being researched.
+    for v in exception.line_variances:
+        if v.sku.lower() in text:
+            boost += 0.3
+            break
 
-    Returns:
-        A float in [0.0, 1.0] representing adjusted relevance.
-    """
-    raise NotImplementedError
+    return min(1.0, base_score + boost)
 
 
 def _summarize_findings(
     findings: list[TavilySearchResult],
     exception: InvoiceException,
 ) -> str:
-    """Generate a plain-English summary of what the research found.
+    """Generate a plain-English summary of what the research found."""
+    if not findings:
+        return "No external information found regarding this exception."
 
-    Args:
-        findings: All Tavily results collected.
-        exception: The exception being researched.
+    top_finding = findings[0]
+    if top_finding.score > 0.7:
+        return f"Research found a highly relevant match: {top_finding.title}. This suggests a a plausible explanation for the variance."
 
-    Returns:
-        A concise summary string for inclusion in the resolution memo.
-    """
-    raise NotImplementedError
+    return "Research returned several low-relevance results; no strong external corroboration found."

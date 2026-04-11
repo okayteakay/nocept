@@ -108,6 +108,7 @@ def generate_straight_through_invoice(
     Returns:
         (Invoice, PurchaseOrder, GoodsReceiptNote) with matching totals.
     """
+    print(f"  [Scenario: Straight-Through] Generating clean match...")
     sup_id, sup_name, sku, desc, grade, price = _random_product()
     if supplier_id is not None:
         prods = [p for p in _PRODUCTS if p[0] == supplier_id]
@@ -160,6 +161,7 @@ def generate_price_variance_exception(
         supplier_id: Optional fixed supplier.
         variance_pct: Fractional price overcharge (e.g. 0.08 = 8%).
     """
+    print(f"  [Scenario: Price Variance] Generating invoice with {variance_pct*100}% unit price overcharge...")
     sup_id, sup_name, sku, desc, grade, po_price = _random_product()
     if supplier_id is not None:
         prods = [p for p in _PRODUCTS if p[0] == supplier_id]
@@ -216,6 +218,7 @@ def generate_informal_modification_exception(
     product due to stock shortage with a verbal agreement, and no PO amendment
     was filed.
     """
+    print(f"  [Scenario: Informal Mod] Generating product grade substitution...")
     po_prod, inv_prod = _random_substitute_pair()
     sup_id, sup_name = po_prod[0], po_prod[1]
     po_sku, po_desc, po_grade, po_price = po_prod[2], po_prod[3], po_prod[4], po_prod[5]
@@ -282,6 +285,7 @@ def generate_expedited_shipping_exception(
     PO has one product line. Invoice adds a SHIP-EXP line for expedited shipping
     agreed verbally by the buyer. GR matches the product line only (no GR for freight).
     """
+    print(f"  [Scenario: Expedited Shipping] Adding shipping surcharge line item...")
     sup_id, sup_name, sku, desc, grade, price = _random_product()
     if supplier_id is not None:
         prods = [p for p in _PRODUCTS if p[0] == supplier_id]
@@ -343,6 +347,7 @@ def generate_quantity_variance_exception(
         supplier_id: Optional fixed supplier.
         shortfall_pct: Fraction of PO quantity missing from the invoice (e.g. 0.15 = 15%).
     """
+    print(f"  [Scenario: Quantity Variance] Generating partial shipment ({shortfall_pct*100}% shortfall)...")
     sup_id, sup_name, sku, desc, grade, price = _random_product()
     po_qty = random.randint(100, 400)
     inv_qty = max(1, int(po_qty * (1 - shortfall_pct)))

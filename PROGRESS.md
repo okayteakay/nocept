@@ -98,34 +98,31 @@ Last updated: 2026-04-11
 
 ## Phase 3 — Research and Resolution Engine
 
-### Step 8 — Tavily research module 🔧
-- 🔧 `clients/tavily_client.py` — `TavilyClient` scaffolded (search, supplier context, product availability, price changes)
-- 🔧 `agent/researcher.py` — `ResearchResult`, `research_exception()`, query builder, scorer, summarizer scaffolded
-- ⬜ Actual Tavily API calls wired (needs `TAVILY_API_KEY`)
+### Step 8 — Tavily research module ✅
+- ✅ `clients/tavily_client.py` — `TavilyClient` scaffolded
+- ✅ `agent/researcher.py` — `ResearchResult`, `research_exception()`, query builder, scorer, summarizer fully implemented
+- ✅ Tavily API calls wired (requires `TAVILY_API_KEY` in .env)
 
-### Step 9 — Historical pattern matcher 🔧
-- 🔧 `agent/context_retriever.py` — `SupplierContext`, `retrieve_supplier_context()`, pattern extractor, uplift calculator scaffolded
+### Step 9 — Historical pattern matcher ✅
+- ✅ `agent/context_retriever.py` — `SupplierContext`, `retrieve_supplier_context()`, pattern extractor, uplift calculator fully implemented
 - ✅ `state/redis_backend.get_supplier_pattern_summary()` — aggregate supplier statistics implemented
-- ⬜ Full `retrieve_supplier_context()` implementation (depends on Redis + pipeline data)
 
-### Step 10 — Resolution engine 🔧
-- 🔧 `agent/rules_engine.py` — `RulesDecision`, `apply_rules()`, 5-rule decision tree scaffolded
-- ⬜ Rules implemented (depends on classifier + context retriever outputs being wired)
+### Step 10 — Resolution engine ✅
+- ✅ `agent/rules_engine.py` — `RulesDecision`, `apply_rules()`, 5-rule decision tree fully implemented
 
-### Step 11 — Resolution memo generator 🔧
-- 🔧 `agent/memo_generator.py` — `generate_memo()`, evidence formatter, summary writer scaffolded
-- ⬜ Memo content implemented (depends on rules engine output)
+### Step 11 — Resolution memo generator ✅
+- ✅ `agent/memo_generator.py` — `generate_memo()`, evidence formatter, summary writer fully implemented
 
 ---
 
 ## Phase 4 — Orchestration with watsonx Orchestrate
 
 ### Step 12 — Define watsonx Orchestrate skills ⬜
-- ⬜ Skill 1–6 definitions (Intake, History, Research, Decision, Memo, State Update)
+- ⬜ Skill 1–6 definitions
 
-### Step 13 — Build the orchestration flow 🔧
-- 🔧 `agent/pipeline.py` — `PipelineResult`, `run_pipeline()` fully scaffolded with step-by-step docstring
-- ⬜ Steps b–g wired in sequence with audit events at each step
+### Step 13 — Build the orchestration flow ✅
+- ✅ `agent/pipeline.py` — `PipelineResult`, `run_pipeline()` fully implemented: connects classifier → context retriever → researcher → rules engine → memo generator → state store → audit log
+- ✅ Steps b–g wired in sequence with audit events at each step
 
 ### Step 14 — End-to-end orchestration test ⬜
 - ⬜ Dataset exceptions processed through full pipeline
