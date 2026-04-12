@@ -38,6 +38,7 @@ def research_exception(
     for query in queries:
         try:
             results = tavily.search(query)
+            logger.info("Tavily query %r returned %d results", query, len(results))
             all_findings.extend(results)
         except Exception as e:
             logger.error("Tavily search failed for query %s: %s", query, e)
