@@ -63,6 +63,7 @@ class AppConfig(BaseSettings):
     model_config = {
         "env_file": str(Path(__file__).resolve().parent.parent / ".env"),
         "populate_by_name": True,
+        "extra": "ignore",
     }
 
     def configure_logging(self) -> None:
