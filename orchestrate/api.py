@@ -38,6 +38,8 @@ from clients.redis_client import RedisStreamsClient, get_redis_connection
 from clients.tavily_client import TavilyClient
 from config.settings import AppConfig, get_settings
 from ingestion.json_ingestor import DatasetBundle, load_dataset
+from knowledge.client import KnowledgeBaseClient
+from knowledge.seeder import seed_knowledge_base
 from models.exception import ExceptionState, InvoiceException
 from models.resolution import Resolution
 from state.redis_backend import RedisStateStore
@@ -65,6 +67,18 @@ async def lifespan(app: FastAPI):
     cfg.configure_logging()
     r = get_redis_connection(cfg.redis_url)
     streams = RedisStreamsClient(r, "ap:audit:events")
+    dataset = load_dataset()
+
+    # Initialise knowledge base and seed from dataset (upsert-safe)
+    kb = KnowledgeBaseClient.from_config(r, cfg)
+    seed_counts = seed_knowledge_base(dataset, kb.resolutions, kb.emails, kb.transcripts)
+    logger.info(
+        "Knowledge base seeded — resolutions: %d, emails: %d, transcripts: %d",
+        seed_counts["resolutions"],
+        seed_counts["emails"],
+        seed_counts["transcripts"],
+    )
+
     _res.update(
         {
             "cfg": cfg,
@@ -72,10 +86,11 @@ async def lifespan(app: FastAPI):
             "store": RedisStateStore(r),
             "tavily": TavilyClient(cfg.tavily_api_key),
             "audit": AuditLogger(streams),
-            "dataset": load_dataset(),
+            "dataset": dataset,
+            "kb": kb,
         }
     )
-    logger.info("Orchestrate API ready — dataset loaded, Redis connected.")
+    logger.info("Orchestrate API ready — dataset loaded, Redis connected, KB seeded.")
     yield
     _res.clear()
 
@@ -119,12 +134,17 @@ def _get_dataset() -> DatasetBundle:
     return _res["dataset"]
 
 
+def _get_kb() -> KnowledgeBaseClient:
+    return _res["kb"]
+
+
 Store = Annotated[RedisStateStore, Depends(_get_store)]
 R = Annotated[redis_lib.Redis, Depends(_get_r)]
 Tavily = Annotated[TavilyClient, Depends(_get_tavily)]
 Audit = Annotated[AuditLogger, Depends(_get_audit)]
 Cfg = Annotated[AppConfig, Depends(_get_cfg)]
 DS = Annotated[DatasetBundle, Depends(_get_dataset)]
+KB = Annotated[KnowledgeBaseClient, Depends(_get_kb)]
 
 # ---------------------------------------------------------------------------
 # Redis helpers for intermediate pipeline state
@@ -645,6 +665,7 @@ async def resolve(
     store: Store,
     r: R,
     audit: Audit,
+    kb: KB,
 ) -> ResolveResponse:
     try:
         exc = store.load(exception_id)
@@ -734,6 +755,11 @@ async def resolve(
             )
         )
 
+    # Ingest the finalized case into the knowledge base so future pipeline runs
+    # and human searches can reference it.
+    exc_final = store.load(exception_id)
+    kb.ingest_resolved_case(exc_final, resolution)
+
     return ResolveResponse(
         exception_id=exception_id,
         final_state=final_state.value,
@@ -744,3 +770,139 @@ async def resolve(
             + (f" Note: {req.notes}" if req.notes else "")
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Base Search — Tool 7 & 8
+# ---------------------------------------------------------------------------
+
+
+class KBEmailSearchRequest(BaseModel):
+    query: str = Field(
+        description=(
+            "Free-text semantic query. May reference buyer/seller names, "
+            "PO/invoice numbers, exception types, or any topic in email communications."
+        )
+    )
+    top_k: int = Field(default=10, ge=1, le=50, description="Maximum results to return.")
+    date_filter: str | None = Field(
+        default=None,
+        description="Restrict to a single date — ISO format, e.g. '2026-01-15'.",
+    )
+    po_filter: str | None = Field(
+        default=None,
+        description="Restrict to emails referencing an exact PO number, e.g. 'PO-0023'.",
+    )
+    invoice_filter: str | None = Field(
+        default=None,
+        description="Restrict to emails referencing an exact invoice number.",
+    )
+
+
+class KBEmailSearchResponse(BaseModel):
+    query: str
+    results: list[dict] = Field(
+        description=(
+            "Matched emails ordered by semantic similarity (score 0–1, higher = better). "
+            "Each entry has: email_id, subject, sender, receiver, date, "
+            "related_po, related_invoice, body, score."
+        )
+    )
+    total: int
+
+
+class KBTranscriptSearchRequest(BaseModel):
+    query: str = Field(
+        description=(
+            "Free-text semantic query. May reference caller/callee names, organizations, "
+            "PO/invoice numbers, or any topic discussed in calls."
+        )
+    )
+    top_k: int = Field(default=10, ge=1, le=50, description="Maximum results to return.")
+    date_filter: str | None = Field(
+        default=None,
+        description="Restrict to a single call date — ISO format, e.g. '2026-01-15'.",
+    )
+    po_filter: str | None = Field(
+        default=None,
+        description="Restrict to transcripts referencing an exact PO number.",
+    )
+    invoice_filter: str | None = Field(
+        default=None,
+        description="Restrict to transcripts referencing an exact invoice number.",
+    )
+
+
+class KBTranscriptSearchResponse(BaseModel):
+    query: str
+    results: list[dict] = Field(
+        description=(
+            "Matched transcripts ordered by semantic similarity (score 0–1, higher = better). "
+            "Each entry has: transcript_id, caller, caller_organization, callee, "
+            "callee_organization, date, duration_minutes, related_po, related_invoice, "
+            "transcript, score."
+        )
+    )
+    total: int
+
+
+@app.post(
+    "/kb/search/emails",
+    response_model=KBEmailSearchResponse,
+    tags=["Knowledge Base"],
+    summary="Tool 7 — Semantic Email Search",
+    description=(
+        "Semantic (vector) search over all stored email communications. "
+        "Finds emails by topic, buyer/seller name, PO number, invoice number, "
+        "or any phrase from the subject or body — even if the exact words differ. "
+        "Optional exact filters for date, PO, and invoice narrow the results. "
+        "Useful for finding evidence before or after an exception is raised."
+    ),
+)
+async def search_emails(req: KBEmailSearchRequest, kb: KB) -> KBEmailSearchResponse:
+    results = kb.search_emails(
+        query=req.query,
+        top_k=req.top_k,
+        date_filter=req.date_filter,
+        po_filter=req.po_filter,
+        invoice_filter=req.invoice_filter,
+    )
+    return KBEmailSearchResponse(query=req.query, results=results, total=len(results))
+
+
+@app.post(
+    "/kb/search/transcripts",
+    response_model=KBTranscriptSearchResponse,
+    tags=["Knowledge Base"],
+    summary="Tool 8 — Semantic Transcript Search",
+    description=(
+        "Semantic (vector) search over all stored phone call transcripts. "
+        "Finds calls by topic, speaker name, organization, PO/invoice reference, "
+        "or any phrase from the conversation — handles unstructured call text well. "
+        "Optional exact filters for date, PO, and invoice narrow the results."
+    ),
+)
+async def search_transcripts(
+    req: KBTranscriptSearchRequest, kb: KB
+) -> KBTranscriptSearchResponse:
+    results = kb.search_transcripts(
+        query=req.query,
+        top_k=req.top_k,
+        date_filter=req.date_filter,
+        po_filter=req.po_filter,
+        invoice_filter=req.invoice_filter,
+    )
+    return KBTranscriptSearchResponse(query=req.query, results=results, total=len(results))
+
+
+@app.get(
+    "/kb/history/{supplier_id}",
+    tags=["Knowledge Base"],
+    summary="Supplier Resolution History",
+    description=(
+        "Return aggregate resolution statistics and the most recent cases for a supplier. "
+        "Includes exception type breakdown, average agent confidence, and recent summaries."
+    ),
+)
+async def supplier_history(supplier_id: str, kb: KB) -> dict:
+    return kb.resolutions.supplier_summary(supplier_id)

@@ -44,6 +44,23 @@ class AppConfig(BaseSettings):
         description="Maximum absolute USD variance eligible for auto-resolution",
     )
 
+    # Knowledge base / embeddings
+    embedding_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        alias="EMBEDDING_MODEL",
+        description="sentence-transformers model name used for vector search",
+    )
+    vector_dimensions: int = Field(
+        default=384,
+        alias="VECTOR_DIMENSIONS",
+        description="Output dimension of the embedding model (384 for all-MiniLM-L6-v2)",
+    )
+    vector_index_prefix: str = Field(
+        default="kb:",
+        alias="VECTOR_INDEX_PREFIX",
+        description="Key prefix namespace for all knowledge-base Redis keys",
+    )
+
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
