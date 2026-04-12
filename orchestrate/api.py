@@ -14,8 +14,8 @@ Tool 6  /tools/resolve/{id}         Finalize: RESOLVED or ESCALATED
 """
 from __future__ import annotations
 
-import json
 import logging
+from collections import deque
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -25,9 +25,8 @@ from pydantic import BaseModel, Field
 
 from agent.classifier import classify_exception
 from agent.comms_checker import check_communications
-from agent.context_retriever import SupplierContext, retrieve_supplier_context
+from agent.context_retriever import retrieve_supplier_context
 from agent.history_checker import check_historical_approval
-from agent.memo_generator import generate_memo
 from agent.researcher import ResearchResult, research_exception
 from agent.rules_engine import (
     RulesDecision,
@@ -46,7 +45,8 @@ from ingestion.json_ingestor import DatasetBundle, load_dataset
 from knowledge.client import KnowledgeBaseClient
 from knowledge.seeder import seed_knowledge_base
 from models.exception import ExceptionState, InvoiceException
-from models.resolution import EvidenceItem, Resolution, ResolutionMemo
+from models.resolution import EvidenceItem, Resolution, ResolutionAction, ResolutionMemo, RootCause
+from state.machine import VALID_TRANSITIONS
 from state.redis_backend import RedisStateStore
 
 logger = logging.getLogger(__name__)
@@ -633,8 +633,6 @@ async def resolve(
 
 
 def _straight_through_decision() -> RulesDecision:
-    from models.resolution import ResolutionAction, RootCause
-
     return RulesDecision(
         action=ResolutionAction.AUTO_APPROVE,
         root_cause=RootCause.POLICY_COMPLIANT_VARIANCE,
@@ -669,14 +667,10 @@ def _walk_to_final(
     Uses the VALID_TRANSITIONS graph to compute a direct path rather than
     hard-coding intermediate states, so it never attempts an illegal jump.
     """
-    from state.machine import VALID_TRANSITIONS
-
     if current == target or current in (ExceptionState.RESOLVED, ExceptionState.ESCALATED):
         return
 
     # BFS to find the shortest valid path from current → target
-    from collections import deque
-
     queue: deque[list[ExceptionState]] = deque([[current]])
     visited: set[ExceptionState] = {current}
     path: list[ExceptionState] = []
