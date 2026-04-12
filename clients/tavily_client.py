@@ -50,7 +50,41 @@ class TavilyClient:
         Returns:
             List of TavilySearchResult ordered by relevance score descending.
         """
-        raise NotImplementedError
+        if not self._api_key:
+            logger.info(
+                "Tavily API key is not configured. Returning no results for query: %s",
+                query,
+            )
+            return []
+
+        try:
+            client = self._get_client()
+            response = client.search(  # type: ignore[attr-defined]
+                query=query,
+                max_results=max_results,
+            )
+        except Exception as err:
+            logger.warning("Tavily search failed for query %s: %s", query, err)
+            return []
+
+        raw_results = response.get("results", []) if isinstance(response, dict) else []
+        results: list[TavilySearchResult] = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            try:
+                results.append(
+                    TavilySearchResult(
+                        title=str(item.get("title", "")),
+                        url=str(item.get("url", "")),
+                        content=str(item.get("content", "")),
+                        score=float(item.get("score", 0.0)),
+                    )
+                )
+            except Exception:
+                continue
+
+        return sorted(results, key=lambda r: r.score, reverse=True)
 
     def search_supplier_context(
         self, supplier_name: str, topic: str
@@ -64,7 +98,8 @@ class TavilyClient:
         Returns:
             List of TavilySearchResult.
         """
-        raise NotImplementedError
+        query = f"{supplier_name} {topic}"
+        return self.search(query=query, max_results=5)
 
     def search_product_availability(
         self, sku: str, description: str
@@ -78,7 +113,8 @@ class TavilyClient:
         Returns:
             List of TavilySearchResult.
         """
-        raise NotImplementedError
+        query = f"{sku} {description} availability discontinued shortage"
+        return self.search(query=query, max_results=5)
 
     def search_price_changes(
         self, supplier_name: str, product_category: str
@@ -92,4 +128,5 @@ class TavilyClient:
         Returns:
             List of TavilySearchResult.
         """
-        raise NotImplementedError
+        query = f"{supplier_name} {product_category} price increase announcement"
+        return self.search(query=query, max_results=5)

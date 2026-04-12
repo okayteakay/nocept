@@ -43,22 +43,17 @@ def _format_evidence_items(
     evidence_list: list[EvidenceItem] = []
 
     # 1. Redis history evidence
+    current_new_skus = [v.sku for v in exception.line_variances if v.is_new_sku]
     for pattern in context.substitution_patterns:
-        # Only add if it was actually used in the decision
-        if any([p["to_sku"] == v.sku for v in exception.line_variances if v.is_new_sku for p in context.substitution_patterns]):
-             # This is wrong logic, I'll fix it in the a loop
-             pass
-
-    # Revised: Just add relevant patterns found in context
-    for pattern in context.substitution_patterns:
-        # We'll just check if the to_sku is in the current exception
-        # (since we're using the list as an evidence source)
-        current_new_skus = [v.sku for v in exception.line_variances if v.is_new_sku]
         if pattern["to_sku"] in current_new_skus:
             evidence_list.append(
                 EvidenceItem(
                     source="redis_history",
-                    description=f"Matched known substitution pattern: {pattern['from_sku']} -> {pattern['to_sku']} (seen {pattern['count']} times)",
+                    description=(
+                        "Matched known substitution pattern: "
+                        f"{pattern['from_sku']} -> {pattern['to_sku']} "
+                        f"(seen {pattern['count']} times)"
+                    ),
                     confidence=0.9,
                 )
             )
@@ -99,6 +94,6 @@ def _write_summary(
     )
 
     if context.substitution_patterns:
-         summary += f"Historical data indicates known substitution patterns for this supplier. "
+        summary += "Historical data indicates known substitution patterns for this supplier. "
 
     return summary

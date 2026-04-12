@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
-from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -20,7 +18,6 @@ from models.grn import GoodsReceiptNote
 from models.invoice import Invoice
 from models.purchase_order import PurchaseOrder
 from models.resolution import Resolution, ResolutionAction, RootCause
-from state.machine import ExceptionStateMachine
 from state.redis_backend import RedisStateStore
 
 logger = logging.getLogger(__name__)
@@ -72,19 +69,45 @@ def run_pipeline(
     ))
     # Short-circuit if straight-through (no exceptions)
     if not exception.exception_types:
+        context = retrieve_supplier_context(invoice.supplier_id, store)
+        research = ResearchResult(
+            queries_run=[],
+            findings=[],
+            relevance_summary="Skipped research for straight-through invoice.",
+            supports_informal_modification=False,
+            supporting_evidence=[],
+        )
         decision = RulesDecision(
             action=ResolutionAction.AUTO_APPROVE,
-            root_cause="policy_compliant_variance", # Needs to be RootCause enum if strictly typed, simplified here
+            root_cause=RootCause.POLICY_COMPLIANT_VARIANCE,
             confidence=1.0,
             reasoning="Straight-through processing: no variances detected.",
             auto_resolvable=True,
         )
-        # We need a mock research/context for the result object
-        context = retrieve_supplier_context(invoice.supplier_id, store)
-        research = ResearchResult(queries_run=[], findings=[], relevance_summary="N/A", supports_informal_modification=False, supporting_evidence=[])
+
         memo = generate_memo(exception, decision, research, context)
-        res = Resolution(exception_id=exception.exception_id, memo=memo, final_state=ExceptionState.RESOLVED)
+        store.transition(exception.exception_id, ExceptionState.TRIAGED)
+        audit.log_transition(
+            exception.exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED
+        )
+        store.transition(exception.exception_id, ExceptionState.PENDING_APPROVAL)
+        audit.log_transition(
+            exception.exception_id, ExceptionState.TRIAGED, ExceptionState.PENDING_APPROVAL
+        )
+        store.transition(exception.exception_id, ExceptionState.RESOLVED)
+        audit.log_transition(
+            exception.exception_id,
+            ExceptionState.PENDING_APPROVAL,
+            ExceptionState.RESOLVED,
+        )
+
+        res = Resolution(
+            exception_id=exception.exception_id,
+            memo=memo,
+            final_state=ExceptionState.RESOLVED,
+        )
         store.save_resolution(res)
+        audit.log_resolution(res)
 
         return PipelineResult(
             exception=exception,
@@ -132,9 +155,28 @@ def run_pipeline(
     ))
 
     # g. Transition to RESOLVED or ESCALATED, persist Resolution
-    final_state = ExceptionState.RESOLVED if decision.auto_resolvable else ExceptionState.ESCALATED
-    store.transition(exception.exception_id, final_state)
-    audit.log_transition(exception.exception_id, ExceptionState.RESEARCHING, final_state)
+    if decision.auto_resolvable:
+        store.transition(exception.exception_id, ExceptionState.PENDING_APPROVAL)
+        audit.log_transition(
+            exception.exception_id,
+            ExceptionState.RESEARCHING,
+            ExceptionState.PENDING_APPROVAL,
+        )
+        store.transition(exception.exception_id, ExceptionState.RESOLVED)
+        audit.log_transition(
+            exception.exception_id,
+            ExceptionState.PENDING_APPROVAL,
+            ExceptionState.RESOLVED,
+        )
+        final_state = ExceptionState.RESOLVED
+    else:
+        store.transition(exception.exception_id, ExceptionState.ESCALATED)
+        audit.log_transition(
+            exception.exception_id,
+            ExceptionState.RESEARCHING,
+            ExceptionState.ESCALATED,
+        )
+        final_state = ExceptionState.ESCALATED
 
     resolution = Resolution(
         exception_id=exception.exception_id,

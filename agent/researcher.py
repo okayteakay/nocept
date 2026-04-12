@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+
 from pydantic import BaseModel
-from models.exception import InvoiceException
-from models.resolution import EvidenceItem
+
 from agent.context_retriever import SupplierContext
 from clients.tavily_client import TavilyClient, TavilySearchResult
+from models.exception import InvoiceException
+from models.resolution import EvidenceItem
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ def research_exception(
             logger.error("Tavily search failed for query %s: %s", query, e)
 
     # De-duplicate by URL and sort by relevance
-    unique_findings = {f.url: f for f in all_findings}.values()
+    unique_findings = {f.url or f.title: f for f in all_findings}.values()
     sorted_findings = sorted(unique_findings, key=lambda x: x.score, reverse=True)
 
     # Filter high-relevance findings to build evidence
@@ -54,7 +56,11 @@ def research_exception(
             evidence.append(
                 EvidenceItem(
                     source="tavily_search",
-                    content=f"Found corroborating info: {f.title}. Result: {f.content[:200]}...",
+                    description=(
+                        f"Found corroborating info: {f.title}. "
+                        f"Snippet: {f.content[:200]}..."
+                    ),
+                    url=f.url,
                     confidence=rel_score,
                 )
             )
@@ -83,14 +89,20 @@ def _build_search_queries(
 
     # SKU specific queries
     for v in exception.line_variances:
-        if v.is_new_sku or (v.price_delta_pct and abs(v.price_delta_pct) > 0.05):
+        if v.is_new_sku or (
+            v.price_delta_pct is not None and abs(v.price_delta_pct) > 0.05
+        ):
             queries.append(f"{v.sku} {v.description} discontinued unavailable")
 
     # Context-aware queries
     if context.average_price_uplift_pct and context.average_price_uplift_pct > 0:
-        queries.append(f"{supplier} announce price uplift {context.average_price_uplift_pct:.1%}")
+        queries.append(
+            f"{supplier} announce price uplift {context.average_price_uplift_pct:.1%}"
+        )
 
-    return list(set(queries))
+    # Preserve order while deduplicating.
+    deduped = list(dict.fromkeys(queries))
+    return deduped
 
 
 def _score_relevance(
@@ -124,6 +136,9 @@ def _summarize_findings(
 
     top_finding = findings[0]
     if top_finding.score > 0.7:
-        return f"Research found a highly relevant match: {top_finding.title}. This suggests a a plausible explanation for the variance."
+        return (
+            f"Research found a highly relevant match: {top_finding.title}. "
+            "This suggests a plausible explanation for the variance."
+        )
 
     return "Research returned several low-relevance results; no strong external corroboration found."
