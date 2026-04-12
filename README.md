@@ -26,7 +26,7 @@ Duplicate invoices are caught at Step 1 and immediately `AUTO_REJECT`ed before a
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   Ingestion Layer                    │
-│    JSON Dataset │ CSV Files │ Webhook (FastAPI)      │
+│         JSON Dataset │ Webhook (FastAPI)             │
 └──────────────────────────┬──────────────────────────┘
                            │
                            ▼
@@ -87,7 +87,7 @@ nocept/
 │   ├── generate_data.py                  # Synthetic Meridian Corp dataset
 │   ├── generate_historical_approvals.py  # Historical approved exceptions
 │   └── generate_real_company_data.py     # Real-company rows via Tavily
-├── ingestion/                    # CSV, JSON, and webhook ingestors
+├── ingestion/                    # JSON and webhook ingestors
 ├── knowledge/                    # Redis vector knowledge base (emails, transcripts)
 ├── models/                       # Pydantic data models
 ├── state/                        # Redis state machine + persistence
@@ -248,5 +248,5 @@ Exceptions span five types: `price_variance`, `quantity_variance`, `informal_mod
 | `OPENAI_BASE_URL` | — | Custom endpoint e.g. nanogpt (optional) |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Model for comms analysis |
 | `PRICE_TOLERANCE_PCT` | `0.01` | Step 2 auto-approve threshold (1%) |
-| `QTY_TOLERANCE_PCT` | `0.02` | Quantity variance classifier threshold |
+| `QTY_TOLERANCE_PCT` | `0.02` | Min quantity delta % to flag as `quantity_variance` in classifier |
 | `LOG_LEVEL` | `INFO` | Python logging level |
