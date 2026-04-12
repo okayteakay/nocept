@@ -4,8 +4,8 @@ agent/comms_checker.py
 Step 4 — Communications Confirmation Check.
 
 Searches emails and phone transcripts linked to the current exception and uses
-an LLM (Claude) to decide whether the communication directly confirms the
-exception and justifies auto-approval.
+an OpenAI-compatible LLM (via nanogpt) to decide whether the communication
+directly confirms the exception and justifies auto-approval.
 
 Flow
 ----
@@ -88,8 +88,8 @@ def check_communications(exception: InvoiceException) -> CommsCheckResult:
     """
     Search all emails and transcripts linked to the exception.
 
-    Uses Claude to read each communication and decide whether it directly
-    confirms the exception cause.
+    Uses an OpenAI-compatible LLM to read each communication and decide
+    whether it directly confirms the exception cause.
     """
     total_checked = len(exception.related_emails) + len(exception.related_transcripts)
 
