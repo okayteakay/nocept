@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -59,7 +60,10 @@ class AppConfig(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    model_config = {"env_file": ".env", "populate_by_name": True}
+    model_config = {
+        "env_file": str(Path(__file__).resolve().parent.parent / ".env"),
+        "populate_by_name": True,
+    }
 
     def configure_logging(self) -> None:
         """Apply log_level to the root logger."""
