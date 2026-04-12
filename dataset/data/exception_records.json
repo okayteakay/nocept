@@ -216,7 +216,9 @@
     "variance_amount": -420.0,
     "variance_percentage": -20.0,
     "description": "Quantity mismatch: PO has 50 units, invoice has 40 units (diff: -10)",
-    "related_email_ids": [],
+    "related_email_ids": [
+      "EMAIL-AUG-001"
+    ],
     "related_transcript_ids": []
   },
   {
@@ -374,7 +376,9 @@
     "variance_amount": 1065.0,
     "variance_percentage": 14.95,
     "description": "Unit price mismatch: PO has $9.50, invoice has $10.92 (+14.95%)",
-    "related_email_ids": [],
+    "related_email_ids": [
+      "EMAIL-AUG-002"
+    ],
     "related_transcript_ids": []
   },
   {
@@ -514,7 +518,9 @@
     "variance_amount": 216.0,
     "variance_percentage": 12.0,
     "description": "Unit price mismatch: PO has $18.00, invoice has $20.16 (+12.0%)",
-    "related_email_ids": [],
+    "related_email_ids": [
+      "EMAIL-AUG-003"
+    ],
     "related_transcript_ids": []
   },
   {
@@ -773,7 +779,9 @@
     "variance_percentage": -12.5,
     "description": "Quantity mismatch: PO has 400 units, invoice has 350 units (diff: -50)",
     "related_email_ids": [],
-    "related_transcript_ids": []
+    "related_transcript_ids": [
+      "CALL-AUG-001"
+    ]
   },
   {
     "exception_id": "EXC-0168",
@@ -867,7 +875,9 @@
     "variance_percentage": 2.0,
     "description": "Quantity mismatch: PO has 1000 units, invoice has 1020 units (diff: 20)",
     "related_email_ids": [],
-    "related_transcript_ids": []
+    "related_transcript_ids": [
+      "CALL-AUG-002"
+    ]
   },
   {
     "exception_id": "EXC-0188",
@@ -894,7 +904,9 @@
     "variance_amount": 3200.0,
     "variance_percentage": 10.0,
     "description": "Expedited shipping surcharge of $3,200.00 added to invoice (not on PO). Buyer may have requested rush delivery offline.",
-    "related_email_ids": [],
+    "related_email_ids": [
+      "EMAIL-AUG-004"
+    ],
     "related_transcript_ids": []
   },
   {

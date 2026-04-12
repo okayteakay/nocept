@@ -998,5 +998,45 @@
     "body": "Hi David,\n\nFollowing up on your order PO-0017. We're currently running low on PCB Standard FR4 \u2014 only have about 240 units in stock right now.\n\nI can fill the remaining 60 units with our PCB Enhanced Multi-Layer at $52.00/unit instead of $34.00. Same specs, just higher grade.\n\nLet me know if that works for you.\n\nBest,\nSteven Kim\nTechParts Direct",
     "related_po": "PO-0017",
     "related_invoice": "INV-0017"
+  },
+  {
+    "email_id": "EMAIL-AUG-001",
+    "subject": "PO-0043 \u2014 Short Shipment Notice",
+    "sender": "john.martinez@apexpaper.com",
+    "receiver": "david.park@meridiancorp.com",
+    "date": "2026-01-14",
+    "body": "Hi David,\n\nApologies for the inconvenience \u2014 we can only ship 40 units of your PO-0043 order right now. Our warehouse ran a recount and we're 10 units short due to a fulfillment error. The remaining 10 units will ship as soon as replenishment arrives, which we expect within 5 business days.\n\nYour invoice INV-0043 reflects only the 40 units actually shipped.\n\nBest,\nJohn Martinez\nApex Paper Co",
+    "related_po": "PO-0043",
+    "related_invoice": "INV-0043"
+  },
+  {
+    "email_id": "EMAIL-AUG-002",
+    "subject": "Price Adjustment Notice \u2014 Gauze Pads (PO-0077)",
+    "sender": "d.chang@medsupply.com",
+    "receiver": "sarah.chen@meridiancorp.com",
+    "date": "2026-01-20",
+    "body": "Hi Sarah,\n\nI wanted to flag a pricing update before you receive invoice INV-0077. The unit price on Gauze Pads Standard 4x4 Pack/200 has increased from $9.50 to $10.92 \u2014 a change of approximately 14.9% \u2014 due to a manufacturer-level cost increase that took effect this quarter. We tried to hold the old rate but were unable to. This adjustment is reflected in your invoice for PO-0077.\n\nHappy to discuss if you need more details.\n\nThanks,\nDiane Chang\nMedSupply Corp",
+    "related_po": "PO-0077",
+    "related_invoice": "INV-0077"
+  },
+  {
+    "email_id": "EMAIL-AUG-003",
+    "subject": "Re: PO-0112 \u2014 Updated Pricing for Chemical Solvent",
+    "sender": "a.foster@brightchem.com",
+    "receiver": "kevin.walsh@meridiancorp.com",
+    "date": "2026-02-03",
+    "body": "Hi Kevin,\n\nFollowing up on our call last week \u2014 just confirming the pricing change in writing. Raw material costs for our solvent line have gone up significantly this quarter, so the new unit rate for your PO-0112 order is $20.16, up from $18.00 (a 12% increase). This is a company-wide adjustment effective immediately.\n\nInvoice INV-0112 will reflect the updated price. Please reach out if you'd like to discuss contract terms for future orders.\n\nRegards,\nAmanda Foster\nBrightChem Solutions",
+    "related_po": "PO-0112",
+    "related_invoice": "INV-0112"
+  },
+  {
+    "email_id": "EMAIL-AUG-004",
+    "subject": "PO-0193 \u2014 Rush Order Confirmed, Expedited Shipping Surcharge Applied",
+    "sender": "n.white@greenleafoffice.com",
+    "receiver": "tom.bradley@meridiancorp.com",
+    "date": "2026-02-19",
+    "body": "Hi Tom,\n\nAs discussed on the call, we've processed PO-0193 as a rush order. Your items are being pulled and will ship today via expedited courier to meet your end-of-week deadline.\n\nPlease note that an expedited shipping surcharge of $3,200.00 will be added to invoice INV-0193 to cover the premium freight costs. This was agreed verbally during our call this morning.\n\nLet me know if you need a separate PO amendment raised for the surcharge.\n\nBest,\nNancy White\nGreenLeaf Office Supplies",
+    "related_po": "PO-0193",
+    "related_invoice": "INV-0193"
   }
 ]

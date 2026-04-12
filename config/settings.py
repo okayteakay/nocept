@@ -17,15 +17,15 @@ class AppConfig(BaseSettings):
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 
-    # Tavily
-    tavily_api_key: str = Field(default="", alias="TAVILY_API_KEY")
+    # OpenAI-compatible — read directly from env by comms_checker (Step 4).
+    # Documented here so .env requirements are discoverable in one place.
+    # Set OPENAI_BASE_URL to your nanogpt endpoint; leave blank for standard OpenAI.
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="", alias="OPENAI_BASE_URL")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 
-    # IBM watsonx
-    watsonx_api_key: str = Field(default="", alias="WATSONX_API_KEY")
-    watsonx_url: str = Field(
-        default="https://us-south.ml.cloud.ibm.com", alias="WATSONX_URL"
-    )
-    watsonx_project_id: str = Field(default="", alias="WATSONX_PROJECT_ID")
+    # Tavily — used by researcher.py (Step 5) and generate_real_company_data.py
+    tavily_api_key: str = Field(default="", alias="TAVILY_API_KEY")
 
     # Business rules
     price_tolerance_pct: float = Field(
@@ -37,11 +37,6 @@ class AppConfig(BaseSettings):
         default=0.02,
         alias="QTY_TOLERANCE_PCT",
         description="Fractional quantity variance threshold for auto-approval (0.02 = 2%)",
-    )
-    auto_resolve_max_variance_usd: float = Field(
-        default=500.0,
-        alias="AUTO_RESOLVE_MAX_VARIANCE_USD",
-        description="Maximum absolute USD variance eligible for auto-resolution",
     )
 
     # Knowledge base / embeddings

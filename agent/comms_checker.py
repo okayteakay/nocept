@@ -3,102 +3,58 @@ agent/comms_checker.py
 
 Step 4 — Communications Confirmation Check.
 
-Searches the emails and phone transcripts linked to the current exception
-for language that directly confirms the exception (price change, substitution,
-short delivery, etc.).
+Searches emails and phone transcripts linked to the current exception and uses
+an LLM (Claude) to decide whether the communication directly confirms the
+exception and justifies auto-approval.
 
-Scoring
--------
-Each keyword hit from the type-specific keyword list adds 0.15 to the
-confidence score (capped at 1.0).  PO/invoice number mentions add 0.20 each;
-supplier name mention adds 0.10.
+Flow
+----
+1. Collect all pre-linked emails and transcripts from the InvoiceException.
+2. For each communication, send the exception context + full comm text to Claude
+   and ask for a structured YES/NO approval decision.
+3. Auto-approve if any communication yields confidence >= COMMS_CONFIRMATION_THRESHOLD.
 
-Auto-approve threshold: confidence >= 0.75
-
-Note: Redis integration for emails/transcripts is a known work-in-progress.
-The current check reads from the InvoiceException's related_emails and
-related_transcripts fields (pre-loaded by the ingestion pipeline).
-Once the Redis stream issue is resolved, this module will be updated to
-also query Redis for any dynamically ingested communications.
+Note: Redis-based search for unlinked comms (by supplier/buyer pair) is a
+known work-in-progress; currently only pre-linked communications are checked.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 
+from openai import OpenAI
+
 from models.communication import Email, PhoneTranscript
 from models.exception import InvoiceException
-from models.exception_record import ExceptionType
 
 logger = logging.getLogger(__name__)
 
-# Confidence threshold to trigger auto-approval via communications
 COMMS_CONFIRMATION_THRESHOLD = 0.75
 
-# Keywords that strongly confirm each exception type
-_KEYWORDS_BY_TYPE: dict[str, list[str]] = {
-    ExceptionType.PRICE_VARIANCE.value: [
-        "price increase",
-        "price adjustment",
-        "price change",
-        "rate change",
-        "unit price",
-        "cost increase",
-        "pricing update",
-        "price escalation",
-        "revised pricing",
-        "new pricing",
-        "cost adjustment",
-        "updated rate",
-    ],
-    ExceptionType.QUANTITY_VARIANCE.value: [
-        "partial delivery",
-        "partial shipment",
-        "quantity adjustment",
-        "short ship",
-        "backorder",
-        "partial fulfillment",
-        "quantity change",
-        "units available",
-        "short-shipped",
-        "delivered partial",
-        "unable to fulfill full",
-        "remaining units",
-    ],
-    ExceptionType.INFORMAL_MODIFICATION.value: [
-        "substitut",
-        "replacement",
-        "equivalent",
-        "alternative",
-        "discontinued",
-        "out of stock",
-        "no longer available",
-        "modified order",
-        "different product",
-        "changed item",
-        "grade change",
-        "product change",
-        "product swap",
-        "next available",
-        "nearest equivalent",
-        "reformulat",
-    ],
-    ExceptionType.MISSING_GOODS_RECEIPT.value: [
-        "delivery confirm",
-        "shipment received",
-        "goods received",
-        "delivery note",
-        "receipt confirm",
-        "delivered on",
-        "package arrived",
-        "received your shipment",
-        "grn",
-        "goods receipt",
-    ],
-    ExceptionType.DUPLICATE_INVOICE.value: [],  # Duplicates are always rejected
-    ExceptionType.NONE.value: [],
+_SYSTEM_PROMPT = """You are an Accounts Payable analyst reviewing invoice exceptions.
+Given an invoice exception and a related communication (email or phone transcript),
+determine whether the communication directly confirms or explains the exception
+well enough to justify automatic approval.
+
+Respond with valid JSON only — no markdown, no prose outside the JSON object:
+{
+  "confirms": true | false,
+  "confidence": <float 0.0–1.0>
 }
+
+Guidelines:
+- "confirms" should be true only when the communication clearly addresses the
+  specific discrepancy described in the exception (price change, substitution,
+  short/over delivery, delivery confirmation, etc.).
+- "confidence" reflects how directly and explicitly the communication speaks to
+  the exception.  A vague or tangentially related message scores low (< 0.5).
+  An explicit, on-point confirmation scores high (>= 0.75).
+- Do NOT approve based on general relationship-building messages, payment
+  reminders, or delivery notifications that do not address the specific variance.
+"""
 
 
 @dataclass
@@ -107,11 +63,9 @@ class CommsConfirmation:
 
     confirmed: bool
     confidence: float
-    source_type: str        # "email" or "transcript"
+    source_type: str      # "email" or "transcript"
     source_id: str
-    excerpt: str            # Most relevant snippet from the communication
-    matched_keywords: list[str]
-    reasoning: str
+    excerpt: str          # Most relevant snippet from the communication
 
 
 class CommsCheckResult:
@@ -132,18 +86,10 @@ class CommsCheckResult:
 
 def check_communications(exception: InvoiceException) -> CommsCheckResult:
     """
-    Search all emails and transcripts linked to the exception for direct
-    confirmation of the exception cause.
+    Search all emails and transcripts linked to the exception.
 
-    Parameters
-    ----------
-    exception:
-        The current InvoiceException, with related_emails and
-        related_transcripts already populated from the dataset.
-
-    Returns
-    -------
-    CommsCheckResult
+    Uses Claude to read each communication and decide whether it directly
+    confirms the exception cause.
     """
     total_checked = len(exception.related_emails) + len(exception.related_transcripts)
 
@@ -158,17 +104,30 @@ def check_communications(exception: InvoiceException) -> CommsCheckResult:
             ),
         )
 
+    client = _get_client()
     best_conf: Optional[CommsConfirmation] = None
     best_confidence = 0.0
 
     for email in exception.related_emails:
-        result = _analyse_email(email, exception)
+        result = _analyse_with_llm(
+            text=f"Subject: {email.subject}\n\n{email.body}",
+            source_type="email",
+            source_id=email.email_id,
+            exception=exception,
+            client=client,
+        )
         if result and result.confidence > best_confidence:
             best_confidence = result.confidence
             best_conf = result
 
     for transcript in exception.related_transcripts:
-        result = _analyse_transcript(transcript, exception)
+        result = _analyse_with_llm(
+            text=transcript.transcript,
+            source_type="transcript",
+            source_id=transcript.transcript_id,
+            exception=exception,
+            client=client,
+        )
         if result and result.confidence > best_confidence:
             best_confidence = result.confidence
             best_conf = result
@@ -177,7 +136,7 @@ def check_communications(exception: InvoiceException) -> CommsCheckResult:
 
     if best_conf is None:
         reasoning = (
-            f"Checked {total_checked} communication(s) but found no relevant content. "
+            f"Checked {total_checked} communication(s) but LLM found no relevant content. "
             "Cannot confirm via communications."
         )
     elif should_approve:
@@ -185,8 +144,7 @@ def check_communications(exception: InvoiceException) -> CommsCheckResult:
             f"Communication {best_conf.source_id} directly confirms this exception "
             f"(confidence {best_confidence:.2f}). "
             f"Source type: {best_conf.source_type}. "
-            f"Matched terms: {', '.join(best_conf.matched_keywords[:4])}. "
-            f"Excerpt: \"{best_conf.excerpt[:250]}\". "
+            f'Excerpt: "{best_conf.excerpt[:250]}". '
             "Auto-approving based on communication evidence."
         )
     else:
@@ -209,84 +167,68 @@ def check_communications(exception: InvoiceException) -> CommsCheckResult:
 # Internals
 # ---------------------------------------------------------------------------
 
+def _get_client() -> OpenAI:
+    api_key  = os.environ.get("OPENAI_API_KEY", "")
+    base_url = os.environ.get("OPENAI_BASE_URL", "")  # set to nanogpt endpoint in .env
+    kwargs: dict = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return OpenAI(**kwargs)
 
-def _analyse_email(
-    email: Email, exception: InvoiceException
-) -> Optional[CommsConfirmation]:
-    full_text = f"{email.subject} {email.body}".lower()
-    return _score_text(
-        text=full_text,
-        raw_text=email.body,
-        source_type="email",
-        source_id=email.email_id,
-        exception=exception,
+
+def _build_user_prompt(exception: InvoiceException, comm_text: str) -> str:
+    exc_types = ", ".join(t.value for t in exception.exception_types)
+    variance_pct = (
+        float(exception.invoice.total_amount - exception.purchase_order.total_amount)
+        / float(exception.purchase_order.total_amount)
+        * 100
+        if float(exception.purchase_order.total_amount) > 0
+        else 0.0
+    )
+    return (
+        f"Exception details:\n"
+        f"  Supplier: {exception.invoice.supplier_name}\n"
+        f"  Exception type(s): {exc_types}\n"
+        f"  PO number: {exception.purchase_order.po_number}\n"
+        f"  Invoice number: {exception.invoice.invoice_number}\n"
+        f"  PO total: ${float(exception.purchase_order.total_amount):,.2f}\n"
+        f"  Invoice total: ${float(exception.invoice.total_amount):,.2f}\n"
+        f"  Variance: {variance_pct:+.2f}%\n"
+        f"  Total variance USD: ${exception.total_variance_usd:,.2f}\n\n"
+        f"Communication text:\n{comm_text}"
     )
 
 
-def _analyse_transcript(
-    transcript: PhoneTranscript, exception: InvoiceException
-) -> Optional[CommsConfirmation]:
-    full_text = transcript.transcript.lower()
-    return _score_text(
-        text=full_text,
-        raw_text=transcript.transcript,
-        source_type="transcript",
-        source_id=transcript.transcript_id,
-        exception=exception,
-    )
-
-
-def _score_text(
+def _analyse_with_llm(
     text: str,
-    raw_text: str,
     source_type: str,
     source_id: str,
     exception: InvoiceException,
+    client: OpenAI,
 ) -> Optional[CommsConfirmation]:
-    """Score a lowercased communication text against the current exception."""
-    score = 0.0
-    matched: list[str] = []
-
-    for exc_type in exception.exception_types:
-        for kw in _KEYWORDS_BY_TYPE.get(exc_type.value, []):
-            if kw.lower() in text and kw not in matched:
-                score += 0.15
-                matched.append(kw)
-
-    # Reference matches (strong signal — supplier/PO/invoice mentioned)
-    if exception.purchase_order.po_number.lower() in text:
-        score += 0.20
-    if exception.invoice.invoice_number.lower() in text:
-        score += 0.20
-    if exception.invoice.supplier_name.lower() in text:
-        score += 0.10
-
-    score = min(1.0, score)
-
-    if score <= 0:
+    """Call an OpenAI-compatible model to assess whether the communication confirms the exception."""
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=256,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": _build_user_prompt(exception, text)},
+            ],
+        )
+        raw = response.choices[0].message.content.strip()
+        parsed = json.loads(raw)
+        confidence = float(parsed.get("confidence", 0.0))
+        return CommsConfirmation(
+            confirmed=bool(parsed.get("confirms", False)),
+            confidence=confidence,
+            source_type=source_type,
+            source_id=source_id,
+            excerpt=text[:300],
+        )
+    except Exception as exc:
+        logger.warning(
+            "LLM comms check failed for %s %s: %s", source_type, source_id, exc
+        )
         return None
-
-    excerpt = _best_excerpt(raw_text, matched)
-
-    return CommsConfirmation(
-        confirmed=score >= COMMS_CONFIRMATION_THRESHOLD,
-        confidence=score,
-        source_type=source_type,
-        source_id=source_id,
-        excerpt=excerpt,
-        matched_keywords=matched,
-        reasoning=f"Matched {len(matched)} keyword(s): {', '.join(matched[:5])}",
-    )
-
-
-def _best_excerpt(text: str, keywords: list[str]) -> str:
-    """Return a ~300-char excerpt centred on the first matched keyword."""
-    if not keywords:
-        return text[:300]
-    for kw in keywords:
-        idx = text.lower().find(kw.lower())
-        if idx >= 0:
-            start = max(0, idx - 80)
-            end = min(len(text), idx + 220)
-            return text[start:end]
-    return text[:300]

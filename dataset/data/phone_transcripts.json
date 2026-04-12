@@ -478,5 +478,29 @@
     "transcript": "[Call between Tom Bradley (Meridian Corp) and Gary Hammond (PrecisionTools Inc)]\n[March 02, 2026, 16:15]\n\nTom Bradley: Gary, quick question \u2014 do you have any new products in your Wrench Set line?\n\nGary Hammond: We actually just added a couple of new SKUs. Want me to send over the updated catalog?\n\nTom Bradley: That would be great. Email it to me when you get a chance.\n\nGary Hammond: Will do. Talk soon.\n\n[Call ended]",
     "related_po": "PO-0119",
     "related_invoice": "INV-0119"
+  },
+  {
+    "transcript_id": "CALL-AUG-001",
+    "caller": "Wendy Brooks",
+    "caller_organization": "CoreFabric Textiles",
+    "callee": "Rachel Gomez",
+    "callee_organization": "Meridian Corp",
+    "date": "2026-02-10",
+    "duration_minutes": 8,
+    "transcript": "[Call between Wendy Brooks (CoreFabric Textiles) and Rachel Gomez (Meridian Corp)]\n[February 09, 2026, 11:15]\n\nWendy Brooks: Hi Rachel, I'm calling about your order PO-0163 for 400 units of Work Uniforms.\n\nRachel Gomez: Yes, what's the status?\n\nWendy Brooks: We've had a partial fulfillment issue at our factory \u2014 we can only ship 350 units now. We're running low on the fabric batch for this SKU and our next production run won't be ready for about two weeks.\n\nRachel Gomez: Okay, so you're 50 units short?\n\nWendy Brooks: That's right, 50 units short on this shipment. Your invoice INV-0163 will reflect the 350 units actually delivered. The remaining 50 will ship on backorder.\n\nRachel Gomez: Understood. Please send me a written confirmation as well.\n\nWendy Brooks: Absolutely, I'll follow up by email. Thank you for your understanding.\n\n[Call ended]",
+    "related_po": "PO-0163",
+    "related_invoice": "INV-0163"
+  },
+  {
+    "transcript_id": "CALL-AUG-002",
+    "caller": "Amanda Foster",
+    "caller_organization": "BrightChem Solutions",
+    "callee": "priya.nair@meridiancorp.com",
+    "callee_organization": "Meridian Corp",
+    "date": "2026-01-30",
+    "duration_minutes": 5,
+    "transcript": "[Call between Amanda Foster (BrightChem Solutions) and Priya Nair (Meridian Corp)]\n[January 29, 2026, 14:30]\n\nAmanda Foster: Hi Priya, quick heads up on PO-0187.\n\nPriya Nair: Go ahead.\n\nAmanda Foster: We accidentally filled your order slightly over \u2014 1,020 units instead of 1,000. The extra 20 units were already on the pallet so rather than unpack it we shipped them through. Your invoice INV-0187 reflects the 1,020 units actually delivered.\n\nPriya Nair: That's fine, we can use the extra stock. Just make sure the invoice matches the delivery note.\n\nAmanda Foster: It will. Thanks for being flexible.\n\n[Call ended]",
+    "related_po": "PO-0187",
+    "related_invoice": "INV-0187"
   }
 ]
