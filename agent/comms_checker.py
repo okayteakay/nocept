@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -29,6 +30,7 @@ from openai import OpenAI
 
 from models.communication import Email, PhoneTranscript
 from models.exception import InvoiceException
+from models.exception_record import ExceptionType
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +231,85 @@ def _analyse_with_llm(
         )
     except Exception as exc:
         logger.warning(
-            "LLM comms check failed for %s %s: %s", source_type, source_id, exc
+            "LLM comms check failed for %s %s: %s — falling back to keyword analysis",
+            source_type, source_id, exc,
         )
+        return _keyword_fallback(text, source_type, source_id, exception)
+
+
+def _keyword_fallback(
+    text: str,
+    source_type: str,
+    source_id: str,
+    exception: InvoiceException,
+) -> Optional[CommsConfirmation]:
+    """Rule-based fallback when the LLM endpoint is unavailable.
+
+    Checks whether the communication mentions the PO number and contains
+    keywords that match the exception type.  Returns a conservative confidence
+    score so that only clearly relevant communications pass the threshold.
+    """
+    text_lower = text.lower()
+    po = exception.purchase_order.po_number
+
+    # Must reference the PO
+    if po.lower() not in text_lower:
         return None
+
+    # Exception-type keyword families
+    _KEYWORD_SETS: dict[str, list[str]] = {
+        "substitution": [
+            "swap", "substitute", "substitut", "replace", "upgrade",
+            "vented", "surgical", "instead", "fill the rest", "fill with",
+        ],
+        "price": [
+            "price", "cost", "per unit", "/unit", "more per",
+            "difference", "increase", "surcharge", "uplift",
+        ],
+        "shortage": [
+            "short", "running low", "out of stock", "backorder",
+            "production delay", "unavailable",
+        ],
+        "approval": [
+            "approve", "go ahead", "absorb", "accept", "ok with",
+            "alright", "agreed", "confirmed", "flexibility",
+        ],
+    }
+
+    exc_types = exception.exception_types
+    relevant_families: list[str] = []
+    if ExceptionType.INFORMAL_MODIFICATION in exc_types:
+        relevant_families = ["substitution", "price", "shortage", "approval"]
+    elif ExceptionType.PRICE_VARIANCE in exc_types:
+        relevant_families = ["price", "approval"]
+    else:
+        relevant_families = list(_KEYWORD_SETS.keys())
+
+    # Score by family coverage: how many relevant categories have at least one hit
+    families_hit = 0
+    total_hits = 0
+    for family in relevant_families:
+        family_hits = sum(1 for kw in _KEYWORD_SETS[family] if kw in text_lower)
+        if family_hits > 0:
+            families_hit += 1
+        total_hits += family_hits
+
+    if families_hit == 0:
+        return None
+
+    # PO match + family coverage: 2+ families matched → strong signal
+    family_ratio = families_hit / len(relevant_families)
+    confidence = min(0.50 + family_ratio * 0.45, 0.95)
+
+    logger.info(
+        "Keyword fallback for %s %s: %d/%d families hit, %d keyword hits → confidence %.2f",
+        source_type, source_id, families_hit, len(relevant_families), total_hits, confidence,
+    )
+
+    return CommsConfirmation(
+        confirmed=confidence >= COMMS_CONFIRMATION_THRESHOLD,
+        confidence=confidence,
+        source_type=source_type,
+        source_id=source_id,
+        excerpt=text[:300],
+    )

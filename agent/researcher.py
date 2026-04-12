@@ -82,17 +82,22 @@ def _build_search_queries(
 ) -> list[str]:
     """Construct targeted search queries from exception characteristics."""
     supplier = exception.supplier_name
+    year = datetime.now().year
     queries = [
-        f"{supplier} price increase {datetime.now().year}",
-        f"{supplier} stock shortage product substitution",
+        f"{supplier} price increase {year}",
+        f"{supplier} price increase {year - 1}",
     ]
 
-    # SKU specific queries
+    # Product-specific queries from line variances
     for v in exception.line_variances:
-        if v.is_new_sku or (
-            v.price_delta_pct is not None and abs(v.price_delta_pct) > 0.05
-        ):
-            queries.append(f"{v.sku} {v.description} discontinued unavailable")
+        desc = v.description
+        if v.price_delta_pct is not None and abs(v.price_delta_pct) > 0.02:
+            queries.append(f"{supplier} {desc} price increase")
+        if v.is_new_sku:
+            queries.append(f"{desc} discontinued unavailable substitution")
+
+    # Generic fallback
+    queries.append(f"{supplier} stock shortage product substitution")
 
     # Context-aware queries
     if context.average_price_uplift_pct and context.average_price_uplift_pct > 0:
