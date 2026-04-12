@@ -88,6 +88,10 @@ async def lifespan(app: FastAPI):
             "kb": kb,
         }
     )
+    logger.info(
+        "Tavily API key loaded: %s",
+        f"{cfg.tavily_api_key[:12]}..." if cfg.tavily_api_key else "NOT SET",
+    )
     logger.info("Orchestrate API ready — dataset loaded, Redis connected, KB seeded.")
     yield
     _res.clear()
