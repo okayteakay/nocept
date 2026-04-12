@@ -102,9 +102,12 @@ def run_pipeline(
         details={"supplier_id": invoice.supplier_id}
     ))
 
-    # d. Transition to RESEARCHING, run Tavily search
+    # d. Transition to TRIAGED then RESEARCHING, run Tavily search
+    store.transition(exception.exception_id, ExceptionState.TRIAGED)
+    audit.log_transition(exception.exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
+
     store.transition(exception.exception_id, ExceptionState.RESEARCHING)
-    audit.log_transition(exception.exception_id, ExceptionState.RECEIVED, ExceptionState.RESEARCHING)
+    audit.log_transition(exception.exception_id, ExceptionState.TRIAGED, ExceptionState.RESEARCHING)
 
     research = research_exception(exception, context, tavily)
     audit.log(AuditEvent(

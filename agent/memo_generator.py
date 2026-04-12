@@ -19,7 +19,7 @@ def generate_memo(
 ) -> ResolutionMemo:
     """Assemble the structured resolution memo for an exception."""
 
-    evidence = _format_evidence_items(research, context, decision)
+    evidence = _format_evidence_items(research, context, decision, exception)
     summary = _write_summary(exception, decision, context)
 
     return ResolutionMemo(
@@ -37,6 +37,7 @@ def _format_evidence_items(
     research: ResearchResult,
     context: SupplierContext,
     decision: RulesDecision,
+    exception: InvoiceException,
 ) -> list[EvidenceItem]:
     """Build the list of EvidenceItems for the memo."""
     evidence_list: list[EvidenceItem] = []

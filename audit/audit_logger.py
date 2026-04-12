@@ -66,24 +66,18 @@ class AuditLogger:
         Returns:
             The Redis stream entry ID (e.g. "1712345678901-0").
         """
+        # Redis Streams require flat string key-value pairs
         fields = {
             "event_id": event.event_id,
             "exception_id": event.exception_id,
             "event_type": event.event_type,
-            "previous_state": event.previous_state or "",
-            "new_state": event.new_state or "",
+            "previous_state": str(event.previous_state) if event.previous_state else "",
+            "new_state": str(event.new_state) if event.new_state else "",
             "actor": event.actor,
-            "details": json.dumps(event.details),
             "timestamp": event.timestamp.isoformat(),
+            "details": json.dumps(event.details),
         }
-        entry_id = self._streams.append(fields)
-        logger.debug(
-            "Audit event appended (entry_id=%s, exception_id=%s, event_type=%s)",
-            entry_id,
-            event.exception_id,
-            event.event_type,
-        )
-        return entry_id
+        return self._streams.append(fields)
 
     def log_transition(
         self,
@@ -121,38 +115,13 @@ class AuditLogger:
         Returns:
             The Redis stream entry ID.
         """
-        event_type = (
-            "resolved"
-            if resolution.memo.action != ResolutionAction.ESCALATE_TO_HUMAN
-            else "escalated"
-        )
         event = AuditEvent(
             exception_id=resolution.exception_id,
-            event_type=event_type,
+            event_type="resolved" if resolution.final_state == ExceptionState.RESOLVED else "escalated",
             details={
-                "action": resolution.memo.action.value,
-                "confidence": resolution.memo.confidence,
+                "final_state": resolution.final_state.value,
                 "root_cause": resolution.memo.root_cause.value,
-            },
-        )
-        return self.log(event)
-
-    def log_detection(self, exc: InvoiceException) -> str:
-        """Log initial exception detection as the first audit-trail event."""
-        event = AuditEvent(
-            exception_id=exc.exception_id,
-            event_type="classification",
-            previous_state=None,
-            new_state=exc.state.value,
-            details={
-                "po_number": exc.purchase_order.po_number,
-                "invoice_number": exc.invoice.invoice_number,
-                "supplier_id": exc.invoice.supplier_id,
-                "exception_types": [t.value for t in exc.exception_types],
-                "variance_amount": round(abs(exc.total_variance_usd), 2),
-                "variance_percentage": _variance_percentage(exc),
-                "status": exc.state.value,
-                "detected_at": exc.created_at.isoformat(),
+                "action": resolution.memo.action.value,
             },
         )
         return self.log(event)
@@ -166,13 +135,22 @@ class AuditLogger:
         Returns:
             Ordered list of AuditEvent objects.
         """
-        entries = self._streams.read_range()
-        trail: list[AuditEvent] = []
-        for entry in entries:
+        all_events = self._streams.read_range()
+        trail = []
+        for entry in all_events:
             fields = entry["fields"]
-            if fields.get("exception_id") != exception_id:
-                continue
-            trail.append(_event_from_fields(fields))
+            if fields.get("exception_id") == exception_id:
+                # Reconstruct AuditEvent from fields
+                trail.append(AuditEvent(
+                    event_id=fields["event_id"],
+                    exception_id=fields["exception_id"],
+                    event_type=fields["event_type"],
+                    previous_state=fields["previous_state"] or None,
+                    new_state=fields["new_state"] or None,
+                    actor=fields["actor"],
+                    timestamp=datetime.fromisoformat(fields["timestamp"]),
+                    details=json.loads(fields["details"]),
+                ))
         return trail
 
     def get_recent_events(self, count: int = 100) -> list[AuditEvent]:
@@ -185,39 +163,19 @@ class AuditLogger:
             List of AuditEvent objects, most recent last (stream order).
         """
         entries = self._streams.read_range()
-        recent = entries[-count:] if count > 0 else entries
-        return [_event_from_fields(entry["fields"]) for entry in recent]
+        recent = entries[-count:]
 
-
-def _event_from_fields(fields: dict) -> AuditEvent:
-    details_raw = fields.get("details", "{}")
-    if isinstance(details_raw, str):
-        try:
-            details = json.loads(details_raw)
-        except json.JSONDecodeError:
-            details = {}
-    else:
-        details = details_raw
-    ts_raw = fields.get("timestamp")
-    timestamp = (
-        datetime.fromisoformat(ts_raw)
-        if isinstance(ts_raw, str) and ts_raw
-        else datetime.now(timezone.utc)
-    )
-    return AuditEvent(
-        event_id=fields.get("event_id", str(uuid.uuid4())),
-        exception_id=fields.get("exception_id", ""),
-        event_type=fields.get("event_type", ""),
-        previous_state=fields.get("previous_state") or None,
-        new_state=fields.get("new_state") or None,
-        actor=fields.get("actor", "agent"),
-        details=details if isinstance(details, dict) else {},
-        timestamp=timestamp,
-    )
-
-
-def _variance_percentage(exc: InvoiceException) -> float:
-    po_total = exc.purchase_order.total_amount
-    if po_total <= 0:
-        return 0.0
-    return round((abs(exc.total_variance_usd) / po_total) * 100, 2)
+        trail = []
+        for entry in recent:
+            fields = entry["fields"]
+            trail.append(AuditEvent(
+                event_id=fields["event_id"],
+                exception_id=fields["exception_id"],
+                event_type=fields["event_type"],
+                previous_state=fields["previous_state"] or None,
+                new_state=fields["new_state"] or None,
+                actor=fields["actor"],
+                timestamp=datetime.fromisoformat(fields["timestamp"]),
+                details=json.loads(fields["details"]),
+            ))
+        return trail

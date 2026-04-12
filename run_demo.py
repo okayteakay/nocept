@@ -35,7 +35,7 @@ def main():
         result = run_pipeline(invoice, po, gr, store, tavily, audit, config)
         
         print("\n--- ✅ Final Agent Resolution ---")
-        print(f"Resolution Status: {result.resolution.status}")
+        print(f"Resolution State: {result.resolution.final_state.value}")
         print("\nAI Generated Memo Summary:")
         print("========================================================================")
         print(result.resolution.memo.summary)

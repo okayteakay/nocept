@@ -63,7 +63,10 @@ class RedisStreamsClient:
             List of dicts with keys "id" and "fields".
         """
         entries = self._r.xrange(self._stream, min=start, max=end)
-        return [{"id": entry_id, "fields": fields} for entry_id, fields in entries]
+        return [
+            {"id": entry_id.decode() if isinstance(entry_id, bytes) else entry_id, "fields": fields}
+            for entry_id, fields in entries
+        ]
 
     def read_group(
         self,
@@ -81,17 +84,23 @@ class RedisStreamsClient:
         Returns:
             List of dicts with keys "id" and "fields".
         """
+        # XREADGROUP GROUP group consumer COUNT count STREAMS stream >
         results = self._r.xreadgroup(
-            groupname=group,
-            consumername=consumer,
+            group=group,
+            consumer=consumer,
             streams={self._stream: ">"},
             count=count,
         )
-        entries: list[dict[str, Any]] = []
-        for _stream, stream_entries in results:
-            for entry_id, fields in stream_entries:
-                entries.append({"id": entry_id, "fields": fields})
-        return entries
+
+        output = []
+        for stream, messages in results:
+            for message in messages:
+                entry_id, fields = message
+                output.append({
+                    "id": entry_id.decode() if isinstance(entry_id, bytes) else entry_id,
+                    "fields": fields
+                })
+        return output
 
     def create_group(self, group: str, mkstream: bool = True) -> None:
         """Create a consumer group on this stream (XGROUP CREATE).
@@ -105,11 +114,12 @@ class RedisStreamsClient:
                 name=self._stream,
                 groupname=group,
                 id="0",
-                mkstream=mkstream,
+                mkstream=mkstream
             )
-        except ResponseError as err:
-            # Redis returns BUSYGROUP if the group already exists.
-            if "BUSYGROUP" not in str(err):
+        except redis.exceptions.ResponseError as e:
+            if "already exists" in str(e):
+                logger.debug("Consumer group %s already exists for stream %s", group, self._stream)
+            else:
                 raise
 
     def ack(self, group: str, entry_id: str) -> None:
