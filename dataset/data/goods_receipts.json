@@ -3752,5 +3752,252 @@
     "date_received": "2026-02-05",
     "received_by": "Mike Thompson",
     "notes": null
+  },
+  {
+    "gr_number": "GR-REAL-001",
+    "po_number": "PO-REAL-001",
+    "invoice_number": "INV-REAL-001",
+    "supplier_id": "SUP-082",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-082",
+        "description": "Isopropyl Alcohol 99% Industrial",
+        "product_grade": "Standard",
+        "unit_price": 12.84,
+        "quantity": 165,
+        "total": 2118.6
+      }
+    ],
+    "date_received": "2026-02-21",
+    "received_by": "Chris Nolan",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-002",
+    "po_number": "PO-REAL-002",
+    "invoice_number": "INV-REAL-002",
+    "supplier_id": "SUP-083",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-083",
+        "description": "Polyurethane Resin Industrial",
+        "product_grade": "Standard",
+        "unit_price": 13.45,
+        "quantity": 72,
+        "total": 968.4
+      }
+    ],
+    "date_received": "2026-02-19",
+    "received_by": "Jamie Brooks",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-003",
+    "po_number": "PO-REAL-003",
+    "invoice_number": "INV-REAL-003",
+    "supplier_id": "SUP-084",
+    "line_items": [
+      {
+        "sku": "REAL-OFFICE-SUP-084",
+        "description": "A4 Copy Paper Premium Ream",
+        "product_grade": "Standard",
+        "unit_price": 72.94,
+        "quantity": 304,
+        "total": 22173.76
+      }
+    ],
+    "date_received": "2025-11-19",
+    "received_by": "Priya Shah",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-004",
+    "po_number": "PO-REAL-004",
+    "invoice_number": "INV-REAL-004",
+    "supplier_id": "SUP-085",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-085",
+        "description": "Corrugated Box Single-Wall",
+        "product_grade": "Standard",
+        "unit_price": 49.95,
+        "quantity": 167,
+        "total": 8341.65
+      }
+    ],
+    "date_received": "2025-11-09",
+    "received_by": "Luis Gomez",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-005",
+    "po_number": "PO-REAL-005",
+    "invoice_number": "INV-REAL-005",
+    "supplier_id": "SUP-086",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-086",
+        "description": "Bubble Wrap Protective Packaging",
+        "product_grade": "Standard",
+        "unit_price": 90.59,
+        "quantity": 334,
+        "total": 30257.06
+      }
+    ],
+    "date_received": "2025-10-13",
+    "received_by": "Dana Ellis",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-006",
+    "po_number": "PO-REAL-006",
+    "invoice_number": "INV-REAL-006",
+    "supplier_id": "SUP-087",
+    "line_items": [
+      {
+        "sku": "REAL-FACILI-SUP-087",
+        "description": "Stainless Steel Fasteners M8",
+        "product_grade": "Standard",
+        "unit_price": 64.68,
+        "quantity": 346,
+        "total": 22379.28
+      }
+    ],
+    "date_received": "2025-12-15",
+    "received_by": "Chris Nolan",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-007",
+    "po_number": "PO-REAL-007",
+    "invoice_number": "INV-REAL-007",
+    "supplier_id": "SUP-088",
+    "line_items": [
+      {
+        "sku": "REAL-FOODS-SUP-088",
+        "description": "Coffee Arabica Beans 5lb",
+        "product_grade": "Standard",
+        "unit_price": 77.75,
+        "quantity": 173,
+        "total": 13450.75
+      }
+    ],
+    "date_received": "2025-09-26",
+    "received_by": "Jamie Brooks",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-008",
+    "po_number": "PO-REAL-008",
+    "invoice_number": "INV-REAL-008",
+    "supplier_id": "SUP-089",
+    "line_items": [
+      {
+        "sku": "REAL-CONSTR-SUP-089",
+        "description": "Portland Cement Type I/II 94lb",
+        "product_grade": "Standard",
+        "unit_price": 90.19,
+        "quantity": 108,
+        "total": 9740.52
+      }
+    ],
+    "date_received": "2026-01-22",
+    "received_by": "Priya Shah",
+    "notes": "Goods received as ordered. Invoice amount differs from PO."
+  },
+  {
+    "gr_number": "GR-REAL-009",
+    "po_number": "PO-REAL-009",
+    "invoice_number": "INV-REAL-009",
+    "supplier_id": "SUP-090",
+    "line_items": [
+      {
+        "sku": "REAL-HEALTH-SUP-090-SUB",
+        "description": "N95 Respirator Mask Box/20 (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 63.16,
+        "quantity": 150,
+        "total": 9474.0
+      }
+    ],
+    "date_received": "2026-02-22",
+    "received_by": "Luis Gomez",
+    "notes": "Substituted item received; no formal PO amendment on file."
+  },
+  {
+    "gr_number": "GR-REAL-010",
+    "po_number": "PO-REAL-010",
+    "invoice_number": "INV-REAL-010",
+    "supplier_id": "SUP-091",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-091-SUB",
+        "description": "Polyurethane Dispersion Coating (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 94.68,
+        "quantity": 53,
+        "total": 5018.04
+      }
+    ],
+    "date_received": "2026-03-12",
+    "received_by": "Dana Ellis",
+    "notes": "Substituted item received; no formal PO amendment on file."
+  },
+  {
+    "gr_number": "GR-REAL-011",
+    "po_number": "PO-REAL-011",
+    "invoice_number": "INV-REAL-011",
+    "supplier_id": "SUP-092",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-092-SUB",
+        "description": "Industrial Paper Tubes (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 115.37,
+        "quantity": 315,
+        "total": 36341.55
+      }
+    ],
+    "date_received": "2025-09-30",
+    "received_by": "Chris Nolan",
+    "notes": "Substituted item received; no formal PO amendment on file."
+  },
+  {
+    "gr_number": "GR-REAL-012",
+    "po_number": "PO-REAL-012",
+    "invoice_number": "INV-REAL-012",
+    "supplier_id": "SUP-093",
+    "line_items": [
+      {
+        "sku": "REAL-OFFICE-SUP-093-SUB",
+        "description": "Business Paper Standard Ream (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 25.3,
+        "quantity": 96,
+        "total": 2428.8
+      }
+    ],
+    "date_received": "2026-03-05",
+    "received_by": "Jamie Brooks",
+    "notes": "Substituted item received; no formal PO amendment on file."
+  },
+  {
+    "gr_number": "GR-REAL-013",
+    "po_number": "PO-REAL-013",
+    "invoice_number": "INV-REAL-013",
+    "supplier_id": "SUP-094",
+    "line_items": [
+      {
+        "sku": "REAL-HEALTH-SUP-094",
+        "description": "Sterile Saline Solution 1L",
+        "product_grade": "Standard",
+        "unit_price": 90.8,
+        "quantity": 205,
+        "total": 18614.0
+      }
+    ],
+    "date_received": "2026-02-17",
+    "received_by": "Priya Shah",
+    "notes": "Partial delivery recorded by receiving team."
   }
 ]

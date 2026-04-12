@@ -6,14 +6,23 @@ import time
 from pydantic import BaseModel
 
 from agent.classifier import classify_exception
+from agent.comms_checker import check_communications
 from agent.context_retriever import SupplierContext, retrieve_supplier_context
+from agent.history_checker import check_historical_approval
 from agent.memo_generator import generate_memo
 from agent.researcher import ResearchResult, research_exception
-from agent.rules_engine import apply_rules, RulesDecision
+from agent.rules_engine import (
+    RulesDecision,
+    gate_communications,
+    gate_escalate,
+    gate_history,
+    gate_research,
+    gate_tolerance,
+)
 from audit.audit_logger import AuditLogger, AuditEvent
 from clients.tavily_client import TavilyClient
 from config.settings import AppConfig
-from models.exception import ExceptionState, ExceptionType, InvoiceException
+from models.exception import ExceptionState, InvoiceException
 from models.grn import GoodsReceiptNote
 from models.invoice import Invoice
 from models.purchase_order import PurchaseOrder
@@ -92,6 +101,47 @@ class PipelineResult(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+def detect_and_enqueue_exception(
+    invoice: Invoice,
+    po: PurchaseOrder,
+    grn: GoodsReceiptNote | None,
+    store: RedisStateStore,
+    audit: AuditLogger,
+    config: AppConfig,
+) -> InvoiceException | None:
+    """Classify an invoice/PO/GR triple and enqueue only actual exceptions."""
+    classification = classify_exception(invoice, po, grn, config, store=store)
+    if not classification.exception_types:
+        return None
+
+    exception = InvoiceException(
+        invoice=invoice,
+        purchase_order=po,
+        grn=grn,
+        state=ExceptionState.RECEIVED,
+        exception_types=classification.exception_types,
+        line_variances=classification.line_variances,
+        total_variance_usd=classification.total_variance_usd,
+    )
+    store.save(exception)
+    audit.log(
+        AuditEvent(
+            exception_id=exception.exception_id,
+            event_type="classification",
+            new_state=ExceptionState.RECEIVED.value,
+            details={
+                "types": [t.value for t in classification.exception_types],
+                "variance": classification.total_variance_usd,
+                "po_number": po.po_number,
+                "invoice_number": invoice.invoice_number,
+                "supplier_id": invoice.supplier_id,
+                "status": ExceptionState.RECEIVED.value,
+            },
+        )
+    )
+    return exception
+
+
 def run_pipeline(
     invoice: Invoice,
     po: PurchaseOrder,
@@ -143,26 +193,7 @@ def run_pipeline(
         )
 
         memo = generate_memo(exception, decision, research, context)
-        store.transition(exception.exception_id, ExceptionState.TRIAGED)
-        audit.log_transition(
-            exception.exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED
-        )
-        store.transition(exception.exception_id, ExceptionState.PENDING_APPROVAL)
-        audit.log_transition(
-            exception.exception_id, ExceptionState.TRIAGED, ExceptionState.PENDING_APPROVAL
-        )
-        store.transition(exception.exception_id, ExceptionState.RESOLVED)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.PENDING_APPROVAL,
-            ExceptionState.RESOLVED,
-        )
-
-        res = Resolution(
-            exception_id=exception.exception_id,
-            memo=memo,
-            final_state=ExceptionState.RESOLVED,
-        )
+        res = Resolution(exception_id=exception.exception_id, memo=memo, final_state=ExceptionState.RESOLVED)
         store.save_resolution(res)
         audit.log_resolution(res)
 
@@ -182,22 +213,41 @@ def run_pipeline(
         details={"supplier_id": invoice.supplier_id}
     ))
 
-    # d. Transition to TRIAGED then RESEARCHING, run Tavily search
+    # d. Transition to TRIAGED and evaluate the gates in order.
     store.transition(exception.exception_id, ExceptionState.TRIAGED)
     audit.log_transition(exception.exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
 
-    store.transition(exception.exception_id, ExceptionState.RESEARCHING)
-    audit.log_transition(exception.exception_id, ExceptionState.TRIAGED, ExceptionState.RESEARCHING)
+    research = ResearchResult(
+        queries_run=[],
+        findings=[],
+        relevance_summary="Research step not needed.",
+        supports_informal_modification=False,
+        supporting_evidence=[],
+    )
+    decision = gate_tolerance(exception, config)
 
-    research = research_exception(exception, context, tavily)
-    audit.log(AuditEvent(
-        exception_id=exception.exception_id,
-        event_type="research_complete",
-        details={"queries": research.queries_run}
-    ))
+    if decision is None:
+        history_result = check_historical_approval(exception)
+        if history_result.auto_approve:
+            decision, _ = gate_history(exception)
 
-    # e. Apply business rules -> RulesDecision
-    decision = apply_rules(exception, context, research, config)
+    if decision is None:
+        comms_result = check_communications(exception)
+        if comms_result.auto_approve:
+            decision, _ = gate_communications(exception)
+
+    if decision is None:
+        store.transition(exception.exception_id, ExceptionState.RESEARCHING)
+        audit.log_transition(exception.exception_id, ExceptionState.TRIAGED, ExceptionState.RESEARCHING)
+
+        research = research_exception(exception, context, tavily)
+        audit.log(AuditEvent(
+            exception_id=exception.exception_id,
+            event_type="research_complete",
+            details={"queries": research.queries_run}
+        ))
+        decision = gate_research(exception, research) or gate_escalate()
+
     audit.log(AuditEvent(
         exception_id=exception.exception_id,
         event_type="rules_applied",
@@ -212,28 +262,9 @@ def run_pipeline(
     ))
 
     # g. Transition to RESOLVED or ESCALATED, persist Resolution
-    if decision.auto_resolvable:
-        store.transition(exception.exception_id, ExceptionState.PENDING_APPROVAL)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.RESEARCHING,
-            ExceptionState.PENDING_APPROVAL,
-        )
-        store.transition(exception.exception_id, ExceptionState.RESOLVED)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.PENDING_APPROVAL,
-            ExceptionState.RESOLVED,
-        )
-        final_state = ExceptionState.RESOLVED
-    else:
-        store.transition(exception.exception_id, ExceptionState.ESCALATED)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.RESEARCHING,
-            ExceptionState.ESCALATED,
-        )
-        final_state = ExceptionState.ESCALATED
+    final_state = ExceptionState.RESOLVED if decision.auto_resolvable else ExceptionState.ESCALATED
+    store.transition(exception.exception_id, final_state)
+    audit.log_transition(exception.exception_id, ExceptionState.RESEARCHING, final_state)
 
     resolution = Resolution(
         exception_id=exception.exception_id,

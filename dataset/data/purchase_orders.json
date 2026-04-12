@@ -3998,5 +3998,265 @@
     "created_by": "Priya Nair",
     "department": "R&D",
     "cost_center": "CC-1005"
+  },
+  {
+    "po_number": "PO-REAL-001",
+    "supplier_id": "SUP-082",
+    "supplier_name": "Eastman Chemical",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-082",
+        "description": "Isopropyl Alcohol 99% Industrial",
+        "product_grade": "Standard",
+        "unit_price": 12.25,
+        "quantity": 165,
+        "total": 2021.25
+      }
+    ],
+    "total_amount": 2021.25,
+    "creation_date": "2026-02-11",
+    "created_by": "Jordan Lee",
+    "department": "Procurement",
+    "cost_center": "CC-2005"
+  },
+  {
+    "po_number": "PO-REAL-002",
+    "supplier_id": "SUP-083",
+    "supplier_name": "Dow Chemical",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-083",
+        "description": "Polyurethane Resin Industrial",
+        "product_grade": "Standard",
+        "unit_price": 12.86,
+        "quantity": 72,
+        "total": 925.92
+      }
+    ],
+    "total_amount": 925.92,
+    "creation_date": "2026-01-30",
+    "created_by": "Casey Park",
+    "department": "Manufacturing",
+    "cost_center": "CC-2001"
+  },
+  {
+    "po_number": "PO-REAL-003",
+    "supplier_id": "SUP-084",
+    "supplier_name": "International Paper",
+    "line_items": [
+      {
+        "sku": "REAL-OFFICE-SUP-084",
+        "description": "A4 Copy Paper Premium Ream",
+        "product_grade": "Standard",
+        "unit_price": 68.49,
+        "quantity": 304,
+        "total": 20820.96
+      }
+    ],
+    "total_amount": 20820.96,
+    "creation_date": "2025-10-21",
+    "created_by": "Taylor Kim",
+    "department": "Manufacturing",
+    "cost_center": "CC-2003"
+  },
+  {
+    "po_number": "PO-REAL-004",
+    "supplier_id": "SUP-085",
+    "supplier_name": "WestRock",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-085",
+        "description": "Corrugated Box Single-Wall",
+        "product_grade": "Standard",
+        "unit_price": 48.04,
+        "quantity": 167,
+        "total": 8022.68
+      }
+    ],
+    "total_amount": 8022.68,
+    "creation_date": "2025-10-11",
+    "created_by": "Morgan Chen",
+    "department": "Procurement",
+    "cost_center": "CC-2001"
+  },
+  {
+    "po_number": "PO-REAL-005",
+    "supplier_id": "SUP-086",
+    "supplier_name": "Sealed Air",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-086",
+        "description": "Bubble Wrap Protective Packaging",
+        "product_grade": "Standard",
+        "unit_price": 86.27,
+        "quantity": 334,
+        "total": 28814.18
+      }
+    ],
+    "total_amount": 28814.18,
+    "creation_date": "2025-09-25",
+    "created_by": "Alex Rivera",
+    "department": "Finance",
+    "cost_center": "CC-2005"
+  },
+  {
+    "po_number": "PO-REAL-006",
+    "supplier_id": "SUP-087",
+    "supplier_name": "Fastenal",
+    "line_items": [
+      {
+        "sku": "REAL-FACILI-SUP-087",
+        "description": "Stainless Steel Fasteners M8",
+        "product_grade": "Standard",
+        "unit_price": 59.68,
+        "quantity": 346,
+        "total": 20649.28
+      }
+    ],
+    "total_amount": 20649.28,
+    "creation_date": "2025-12-06",
+    "created_by": "Morgan Chen",
+    "department": "Manufacturing",
+    "cost_center": "CC-2002"
+  },
+  {
+    "po_number": "PO-REAL-007",
+    "supplier_id": "SUP-088",
+    "supplier_name": "Sysco",
+    "line_items": [
+      {
+        "sku": "REAL-FOODS-SUP-088",
+        "description": "Coffee Arabica Beans 5lb",
+        "product_grade": "Standard",
+        "unit_price": 69.51,
+        "quantity": 173,
+        "total": 12025.23
+      }
+    ],
+    "total_amount": 12025.23,
+    "creation_date": "2025-09-18",
+    "created_by": "Jordan Lee",
+    "department": "Procurement",
+    "cost_center": "CC-2004"
+  },
+  {
+    "po_number": "PO-REAL-008",
+    "supplier_id": "SUP-089",
+    "supplier_name": "Holcim",
+    "line_items": [
+      {
+        "sku": "REAL-CONSTR-SUP-089",
+        "description": "Portland Cement Type I/II 94lb",
+        "product_grade": "Standard",
+        "unit_price": 85.07,
+        "quantity": 108,
+        "total": 9187.56
+      }
+    ],
+    "total_amount": 9187.56,
+    "creation_date": "2025-12-26",
+    "created_by": "Jordan Lee",
+    "department": "Facilities",
+    "cost_center": "CC-2001"
+  },
+  {
+    "po_number": "PO-REAL-009",
+    "supplier_id": "SUP-090",
+    "supplier_name": "3M",
+    "line_items": [
+      {
+        "sku": "REAL-HEALTH-SUP-090",
+        "description": "N95 Respirator Mask Box/20",
+        "product_grade": "Standard",
+        "unit_price": 58.07,
+        "quantity": 150,
+        "total": 8710.5
+      }
+    ],
+    "total_amount": 8710.5,
+    "creation_date": "2026-02-10",
+    "created_by": "Taylor Kim",
+    "department": "Facilities",
+    "cost_center": "CC-2005"
+  },
+  {
+    "po_number": "PO-REAL-010",
+    "supplier_id": "SUP-091",
+    "supplier_name": "BASF",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-091",
+        "description": "Polyurethane Dispersion Coating",
+        "product_grade": "Standard",
+        "unit_price": 85.86,
+        "quantity": 53,
+        "total": 4550.58
+      }
+    ],
+    "total_amount": 4550.58,
+    "creation_date": "2026-02-23",
+    "created_by": "Alex Rivera",
+    "department": "Facilities",
+    "cost_center": "CC-2004"
+  },
+  {
+    "po_number": "PO-REAL-011",
+    "supplier_id": "SUP-092",
+    "supplier_name": "Sonoco",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-092",
+        "description": "Industrial Paper Tubes",
+        "product_grade": "Standard",
+        "unit_price": 92.18,
+        "quantity": 315,
+        "total": 29036.7
+      }
+    ],
+    "total_amount": 29036.7,
+    "creation_date": "2025-09-17",
+    "created_by": "Morgan Chen",
+    "department": "Operations",
+    "cost_center": "CC-2004"
+  },
+  {
+    "po_number": "PO-REAL-012",
+    "supplier_id": "SUP-093",
+    "supplier_name": "Domtar",
+    "line_items": [
+      {
+        "sku": "REAL-OFFICE-SUP-093",
+        "description": "Business Paper Standard Ream",
+        "product_grade": "Standard",
+        "unit_price": 22.86,
+        "quantity": 96,
+        "total": 2194.56
+      }
+    ],
+    "total_amount": 2194.56,
+    "creation_date": "2026-02-12",
+    "created_by": "Casey Park",
+    "department": "Manufacturing",
+    "cost_center": "CC-2003"
+  },
+  {
+    "po_number": "PO-REAL-013",
+    "supplier_id": "SUP-094",
+    "supplier_name": "McKesson",
+    "line_items": [
+      {
+        "sku": "REAL-HEALTH-SUP-094",
+        "description": "Sterile Saline Solution 1L",
+        "product_grade": "Standard",
+        "unit_price": 90.8,
+        "quantity": 229,
+        "total": 20793.2
+      }
+    ],
+    "total_amount": 20793.2,
+    "creation_date": "2026-01-28",
+    "created_by": "Jordan Lee",
+    "department": "Manufacturing",
+    "cost_center": "CC-2004"
   }
 ]

@@ -133,7 +133,7 @@ receiptfinder/
 | `WATSONX_API_KEY` | — | IBM watsonx API key |
 | `WATSONX_URL` | `https://us-south.ml.cloud.ibm.com` | watsonx endpoint |
 | `WATSONX_PROJECT_ID` | — | watsonx project ID |
-| `PRICE_TOLERANCE_PCT` | `0.05` | Auto-approve price variance threshold (5%) |
+| `PRICE_TOLERANCE_PCT` | `0.01` | Auto-approve invoice-to-PO variance threshold (1%) |
 | `QTY_TOLERANCE_PCT` | `0.02` | Auto-approve quantity variance threshold (2%) |
 | `AUTO_RESOLVE_MAX_VARIANCE_USD` | `500` | Max USD variance for auto-resolution |
 | `LOG_LEVEL` | `INFO` | Python logging level |

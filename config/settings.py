@@ -29,9 +29,9 @@ class AppConfig(BaseSettings):
 
     # Business rules
     price_tolerance_pct: float = Field(
-        default=0.05,
+        default=0.01,
         alias="PRICE_TOLERANCE_PCT",
-        description="Fractional price variance threshold for auto-approval (0.05 = 5%)",
+        description="Fractional price variance threshold for auto-approval (0.01 = 1%)",
     )
     qty_tolerance_pct: float = Field(
         default=0.02,

@@ -4142,5 +4142,265 @@
     "invoice_date": "2026-02-10",
     "due_date": "2026-03-12",
     "payment_terms": "Net 45"
+  },
+  {
+    "invoice_number": "INV-REAL-001",
+    "po_number": "PO-REAL-001",
+    "supplier_id": "SUP-082",
+    "supplier_name": "Eastman Chemical",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-082",
+        "description": "Isopropyl Alcohol 99% Industrial",
+        "product_grade": "Standard",
+        "unit_price": 12.84,
+        "quantity": 165,
+        "total": 2118.6
+      }
+    ],
+    "total_amount": 2118.6,
+    "invoice_date": "2026-02-21",
+    "due_date": "2026-03-23",
+    "payment_terms": "Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-002",
+    "po_number": "PO-REAL-002",
+    "supplier_id": "SUP-083",
+    "supplier_name": "Dow Chemical",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-083",
+        "description": "Polyurethane Resin Industrial",
+        "product_grade": "Standard",
+        "unit_price": 13.45,
+        "quantity": 72,
+        "total": 968.4
+      }
+    ],
+    "total_amount": 968.4,
+    "invoice_date": "2026-02-19",
+    "due_date": "2026-03-21",
+    "payment_terms": "2/10 Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-003",
+    "po_number": "PO-REAL-003",
+    "supplier_id": "SUP-084",
+    "supplier_name": "International Paper",
+    "line_items": [
+      {
+        "sku": "REAL-OFFICE-SUP-084",
+        "description": "A4 Copy Paper Premium Ream",
+        "product_grade": "Standard",
+        "unit_price": 72.94,
+        "quantity": 304,
+        "total": 22173.76
+      }
+    ],
+    "total_amount": 22173.76,
+    "invoice_date": "2025-11-19",
+    "due_date": "2025-12-19",
+    "payment_terms": "Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-004",
+    "po_number": "PO-REAL-004",
+    "supplier_id": "SUP-085",
+    "supplier_name": "WestRock",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-085",
+        "description": "Corrugated Box Single-Wall",
+        "product_grade": "Standard",
+        "unit_price": 49.95,
+        "quantity": 167,
+        "total": 8341.65
+      }
+    ],
+    "total_amount": 8341.65,
+    "invoice_date": "2025-11-09",
+    "due_date": "2025-12-09",
+    "payment_terms": "Net 45"
+  },
+  {
+    "invoice_number": "INV-REAL-005",
+    "po_number": "PO-REAL-005",
+    "supplier_id": "SUP-086",
+    "supplier_name": "Sealed Air",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-086",
+        "description": "Bubble Wrap Protective Packaging",
+        "product_grade": "Standard",
+        "unit_price": 90.59,
+        "quantity": 334,
+        "total": 30257.06
+      }
+    ],
+    "total_amount": 30257.06,
+    "invoice_date": "2025-10-13",
+    "due_date": "2025-11-12",
+    "payment_terms": "Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-006",
+    "po_number": "PO-REAL-006",
+    "supplier_id": "SUP-087",
+    "supplier_name": "Fastenal",
+    "line_items": [
+      {
+        "sku": "REAL-FACILI-SUP-087",
+        "description": "Stainless Steel Fasteners M8",
+        "product_grade": "Standard",
+        "unit_price": 64.68,
+        "quantity": 346,
+        "total": 22379.28
+      }
+    ],
+    "total_amount": 22379.28,
+    "invoice_date": "2025-12-15",
+    "due_date": "2026-01-14",
+    "payment_terms": "2/10 Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-007",
+    "po_number": "PO-REAL-007",
+    "supplier_id": "SUP-088",
+    "supplier_name": "Sysco",
+    "line_items": [
+      {
+        "sku": "REAL-FOODS-SUP-088",
+        "description": "Coffee Arabica Beans 5lb",
+        "product_grade": "Standard",
+        "unit_price": 77.75,
+        "quantity": 173,
+        "total": 13450.75
+      }
+    ],
+    "total_amount": 13450.75,
+    "invoice_date": "2025-09-26",
+    "due_date": "2025-10-26",
+    "payment_terms": "Net 45"
+  },
+  {
+    "invoice_number": "INV-REAL-008",
+    "po_number": "PO-REAL-008",
+    "supplier_id": "SUP-089",
+    "supplier_name": "Holcim",
+    "line_items": [
+      {
+        "sku": "REAL-CONSTR-SUP-089",
+        "description": "Portland Cement Type I/II 94lb",
+        "product_grade": "Standard",
+        "unit_price": 90.19,
+        "quantity": 108,
+        "total": 9740.52
+      }
+    ],
+    "total_amount": 9740.52,
+    "invoice_date": "2026-01-22",
+    "due_date": "2026-02-21",
+    "payment_terms": "2/10 Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-009",
+    "po_number": "PO-REAL-009",
+    "supplier_id": "SUP-090",
+    "supplier_name": "3M",
+    "line_items": [
+      {
+        "sku": "REAL-HEALTH-SUP-090-SUB",
+        "description": "N95 Respirator Mask Box/20 (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 63.16,
+        "quantity": 150,
+        "total": 9474.0
+      }
+    ],
+    "total_amount": 9474.0,
+    "invoice_date": "2026-02-22",
+    "due_date": "2026-03-24",
+    "payment_terms": "Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-010",
+    "po_number": "PO-REAL-010",
+    "supplier_id": "SUP-091",
+    "supplier_name": "BASF",
+    "line_items": [
+      {
+        "sku": "REAL-CHEMIC-SUP-091-SUB",
+        "description": "Polyurethane Dispersion Coating (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 94.68,
+        "quantity": 53,
+        "total": 5018.04
+      }
+    ],
+    "total_amount": 5018.04,
+    "invoice_date": "2026-03-12",
+    "due_date": "2026-04-11",
+    "payment_terms": "Net 45"
+  },
+  {
+    "invoice_number": "INV-REAL-011",
+    "po_number": "PO-REAL-011",
+    "supplier_id": "SUP-092",
+    "supplier_name": "Sonoco",
+    "line_items": [
+      {
+        "sku": "REAL-PACKAG-SUP-092-SUB",
+        "description": "Industrial Paper Tubes (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 115.37,
+        "quantity": 315,
+        "total": 36341.55
+      }
+    ],
+    "total_amount": 36341.55,
+    "invoice_date": "2025-09-30",
+    "due_date": "2025-10-30",
+    "payment_terms": "Net 45"
+  },
+  {
+    "invoice_number": "INV-REAL-012",
+    "po_number": "PO-REAL-012",
+    "supplier_id": "SUP-093",
+    "supplier_name": "Domtar",
+    "line_items": [
+      {
+        "sku": "REAL-OFFICE-SUP-093-SUB",
+        "description": "Business Paper Standard Ream (Substituted / Next Available)",
+        "product_grade": "Premium",
+        "unit_price": 25.3,
+        "quantity": 96,
+        "total": 2428.8
+      }
+    ],
+    "total_amount": 2428.8,
+    "invoice_date": "2026-03-05",
+    "due_date": "2026-04-04",
+    "payment_terms": "2/10 Net 30"
+  },
+  {
+    "invoice_number": "INV-REAL-013",
+    "po_number": "PO-REAL-013",
+    "supplier_id": "SUP-094",
+    "supplier_name": "McKesson",
+    "line_items": [
+      {
+        "sku": "REAL-HEALTH-SUP-094",
+        "description": "Sterile Saline Solution 1L",
+        "product_grade": "Standard",
+        "unit_price": 90.8,
+        "quantity": 205,
+        "total": 18614.0
+      }
+    ],
+    "total_amount": 18614.0,
+    "invoice_date": "2026-02-17",
+    "due_date": "2026-03-19",
+    "payment_terms": "Net 30"
   }
 ]

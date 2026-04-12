@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC
+from datetime import timezone
 
 import redis
 
@@ -323,5 +323,5 @@ def _queue_score(exc: InvoiceException) -> float:
     # Time-based queue ordering; keeps ingest order stable.
     created_at = exc.created_at
     if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
+        created_at = created_at.replace(tzinfo=timezone.utc)
     return created_at.timestamp()
