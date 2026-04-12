@@ -10,6 +10,7 @@ VALID_TRANSITIONS: dict[ExceptionState, set[ExceptionState]] = {
         ExceptionState.RESEARCHING,
         ExceptionState.PENDING_APPROVAL,
         ExceptionState.ESCALATED,
+        ExceptionState.RESOLVED,
     },
     ExceptionState.RESEARCHING: {
         ExceptionState.PENDING_APPROVAL,
