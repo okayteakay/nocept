@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import redis
+from redis.exceptions import ResponseError
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class RedisStreamsClient:
         Returns:
             The Redis stream entry ID (e.g. "1712345678901-0").
         """
-        raise NotImplementedError
+        return self._r.xadd(self._stream, fields)
 
     def read_range(self, start: str = "-", end: str = "+") -> list[dict[str, Any]]:
         """Read all entries in the stream between start and end IDs (XRANGE).
@@ -61,7 +62,8 @@ class RedisStreamsClient:
         Returns:
             List of dicts with keys "id" and "fields".
         """
-        raise NotImplementedError
+        entries = self._r.xrange(self._stream, min=start, max=end)
+        return [{"id": entry_id, "fields": fields} for entry_id, fields in entries]
 
     def read_group(
         self,
@@ -79,7 +81,17 @@ class RedisStreamsClient:
         Returns:
             List of dicts with keys "id" and "fields".
         """
-        raise NotImplementedError
+        results = self._r.xreadgroup(
+            groupname=group,
+            consumername=consumer,
+            streams={self._stream: ">"},
+            count=count,
+        )
+        entries: list[dict[str, Any]] = []
+        for _stream, stream_entries in results:
+            for entry_id, fields in stream_entries:
+                entries.append({"id": entry_id, "fields": fields})
+        return entries
 
     def create_group(self, group: str, mkstream: bool = True) -> None:
         """Create a consumer group on this stream (XGROUP CREATE).
@@ -88,7 +100,17 @@ class RedisStreamsClient:
             group: Group name.
             mkstream: If True, create the stream if it doesn't exist.
         """
-        raise NotImplementedError
+        try:
+            self._r.xgroup_create(
+                name=self._stream,
+                groupname=group,
+                id="0",
+                mkstream=mkstream,
+            )
+        except ResponseError as err:
+            # Redis returns BUSYGROUP if the group already exists.
+            if "BUSYGROUP" not in str(err):
+                raise
 
     def ack(self, group: str, entry_id: str) -> None:
         """Acknowledge a processed entry in a consumer group (XACK).
@@ -97,4 +119,4 @@ class RedisStreamsClient:
             group: Consumer group name.
             entry_id: The stream entry ID returned by read_group.
         """
-        raise NotImplementedError
+        self._r.xack(self._stream, group, entry_id)

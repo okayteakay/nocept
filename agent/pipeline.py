@@ -70,7 +70,6 @@ def run_pipeline(
         event_type="classification",
         details={"types": [t.value for t in class_res.exception_types], "variance": class_res.total_variance_usd}
     ))
-
     # Short-circuit if straight-through (no exceptions)
     if not exception.exception_types:
         decision = RulesDecision(
