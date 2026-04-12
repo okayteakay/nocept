@@ -145,7 +145,14 @@ def _rset(r: redis_lib.Redis, prefix: str, eid: str, data: str) -> None:
     r.set(f"{prefix}{eid}", data, ex=_TTL)
 
 
-def _load_exc(r: redis_lib.Redis, eid: str) -> InvoiceException:
+def _load_exc(r: redis_lib.Redis, eid: str, store: RedisStateStore | None = None) -> InvoiceException:
+    # Prefer the store's copy — it is updated on every state transition.
+    # Fall back to the raw exc: cache only if the store copy is unavailable.
+    if store is not None:
+        try:
+            return store.load(eid)
+        except KeyError:
+            pass
     raw = r.get(f"{_EXC_PFX}{eid}")
     if raw is None:
         raise HTTPException(404, f"Exception '{eid}' not found. Call Tool 1 first.")
@@ -306,10 +313,16 @@ async def intake(
 async def tolerance(
     exception_id: str,
     r: R,
+    store: Store,
     cfg: Cfg,
     audit: Audit,
 ) -> ToleranceResponse:
-    exc = _load_exc(r, exception_id)
+    exc = _load_exc(r, exception_id, store)
+
+    if exc.state == ExceptionState.RECEIVED:
+        store.transition(exception_id, ExceptionState.TRIAGED)
+        audit.log_transition(exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
+        exc = _load_exc(r, exception_id, store)
 
     dup_decision = gate_duplicate(exc)
     if dup_decision:
@@ -374,7 +387,7 @@ async def history(
     store: Store,
     audit: Audit,
 ) -> HistoryResponse:
-    exc = _load_exc(r, exception_id)
+    exc = _load_exc(r, exception_id, store)
 
     if exc.state == ExceptionState.RECEIVED:
         store.transition(exception_id, ExceptionState.TRIAGED)
@@ -421,9 +434,10 @@ async def history(
 async def communications(
     exception_id: str,
     r: R,
+    store: Store,
     audit: Audit,
 ) -> CommsResponse:
-    exc = _load_exc(r, exception_id)
+    exc = _load_exc(r, exception_id, store)
 
     result = check_communications(exc)
     if result.auto_approve:
@@ -474,7 +488,7 @@ async def research(
     tavily: Tavily,
     audit: Audit,
 ) -> ResearchResponse:
-    exc = _load_exc(r, exception_id)
+    exc = _load_exc(r, exception_id, store)
 
     if exc.state == ExceptionState.TRIAGED:
         store.transition(exception_id, ExceptionState.RESEARCHING)
@@ -545,7 +559,7 @@ async def resolve(
     audit: Audit,
     kb: KB,
 ) -> ResolveResponse:
-    exc = _load_exc(r, exception_id)
+    exc = _load_exc(r, exception_id, store)
 
     dec_raw = r.get(f"{_DEC_PFX}{exception_id}")
     if dec_raw is None:
@@ -645,32 +659,39 @@ def _walk_to_final(
     current: ExceptionState,
     target: ExceptionState,
 ) -> None:
-    if current in (ExceptionState.RESOLVED, ExceptionState.ESCALATED):
+    """Walk the state machine from *current* to *target* using valid transitions.
+
+    Uses the VALID_TRANSITIONS graph to compute a direct path rather than
+    hard-coding intermediate states, so it never attempts an illegal jump.
+    """
+    from state.machine import VALID_TRANSITIONS
+
+    if current == target or current in (ExceptionState.RESOLVED, ExceptionState.ESCALATED):
         return
 
+    # BFS to find the shortest valid path from current → target
+    from collections import deque
+
+    queue: deque[list[ExceptionState]] = deque([[current]])
+    visited: set[ExceptionState] = {current}
     path: list[ExceptionState] = []
-    if current == ExceptionState.RECEIVED:
-        path.append(ExceptionState.TRIAGED)
-        current = ExceptionState.TRIAGED
 
-    if target == ExceptionState.RESOLVED:
-        if current in (ExceptionState.TRIAGED, ExceptionState.RESEARCHING):
-            path.append(ExceptionState.PENDING_APPROVAL)
-        path.append(ExceptionState.RESOLVED)
-    elif target == ExceptionState.ESCALATED:
-        if current in (
-            ExceptionState.TRIAGED,
-            ExceptionState.RESEARCHING,
-            ExceptionState.PENDING_APPROVAL,
-        ):
-            path.append(ExceptionState.ESCALATED)
-    else:
-        path.append(target)
+    while queue:
+        route = queue.popleft()
+        node = route[-1]
+        if node == target:
+            path = route[1:]  # skip `current`, it's where we already are
+            break
+        for neighbor in VALID_TRANSITIONS.get(node, set()):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(route + [neighbor])
 
+    prev = current
     for next_state in path:
         store.transition(eid, next_state)
-        audit.log_transition(eid, current, next_state)
-        current = next_state
+        audit.log_transition(eid, prev, next_state)
+        prev = next_state
 
 
 class KBEmailSearchRequest(BaseModel):
