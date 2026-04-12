@@ -26,6 +26,63 @@ from state.redis_backend import RedisStateStore
 logger = logging.getLogger(__name__)
 
 
+def detect_and_enqueue_exception(
+    invoice: Invoice,
+    po: PurchaseOrder,
+    grn: GoodsReceiptNote | None,
+    store: RedisStateStore,
+    audit: AuditLogger,
+    config: AppConfig,
+) -> InvoiceException | None:
+    """Classify an invoice triplet and enqueue it if an exception is detected.
+
+    Returns the created InvoiceException (state=RECEIVED) if an exception was
+    detected and enqueued, or None for straight-through (clean) invoices.
+
+    This is the pipeline's intake gate: it runs classification, persists the
+    exception to the Redis queue, and logs the initial audit event — but does
+    not proceed with research or resolution.
+    """
+    exc = InvoiceException(
+        invoice=invoice,
+        purchase_order=po,
+        grn=grn,
+        state=ExceptionState.RECEIVED,
+    )
+
+    class_res = classify_exception(invoice, po, grn, config, store=store)
+    exc.exception_types = class_res.exception_types
+    exc.line_variances = class_res.line_variances
+    exc.total_variance_usd = class_res.total_variance_usd
+
+    # Straight-through: no exception detected — do not enqueue.
+    if not exc.exception_types:
+        return None
+
+    store.save(exc)
+    audit.log(AuditEvent(
+        exception_id=exc.exception_id,
+        event_type="classification",
+        new_state=ExceptionState.RECEIVED.value,
+        details={
+            "types": [t.value for t in class_res.exception_types],
+            "variance": class_res.total_variance_usd,
+            "po_number": po.po_number,
+            "invoice_number": invoice.invoice_number,
+            "supplier_id": invoice.supplier_id,
+            "status": ExceptionState.RECEIVED.value,
+        },
+    ))
+
+    logger.debug(
+        "Enqueued exception %s (types=%s, variance=%.2f)",
+        exc.exception_id,
+        [t.value for t in exc.exception_types],
+        exc.total_variance_usd,
+    )
+    return exc
+
+
 class PipelineResult(BaseModel):
     """Full output of a single pipeline run."""
 
