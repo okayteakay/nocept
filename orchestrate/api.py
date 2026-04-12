@@ -553,11 +553,11 @@ async def research(
 )
 async def resolve(
     exception_id: str,
-    req: ResolveRequest,
     store: Store,
     r: R,
     audit: Audit,
     kb: KB,
+    req: ResolveRequest | None = None,
 ) -> ResolveResponse:
     exc = _load_exc(r, exception_id, store)
 
@@ -600,13 +600,14 @@ async def resolve(
     store.save_resolution(resolution)
     audit.log_resolution(resolution)
 
-    if req.notes:
+    notes = req.notes if req else None
+    if notes:
         audit.log(
             AuditEvent(
                 exception_id=exception_id,
                 event_type="human_note",
                 actor="human",
-                details={"notes": req.notes},
+                details={"notes": notes},
             )
         )
 
@@ -622,7 +623,7 @@ async def resolve(
             f"Exception {exception_id} {final_state.value.lower()}. "
             f"Action: {decision.action.value}. "
             f"Approved by step: {decision.approved_by_step}."
-            + (f" Note: {req.notes}" if req.notes else "")
+            + (f" Note: {notes}" if notes else "")
         ),
     )
 
