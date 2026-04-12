@@ -72,11 +72,8 @@ def app_config() -> AppConfig:
     return AppConfig(
         REDIS_URL="redis://localhost:6379/0",
         TAVILY_API_KEY="test-key",
-        WATSONX_API_KEY="test-key",
-        WATSONX_PROJECT_ID="test-project",
         PRICE_TOLERANCE_PCT=0.03,
         QTY_TOLERANCE_PCT=0.02,
-        AUTO_RESOLVE_MAX_VARIANCE_USD=200.0,
     )
 
 

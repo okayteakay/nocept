@@ -1,9 +1,12 @@
 """Tests for agent.researcher — Tavily external research step."""
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from agent.researcher import ResearchResult, research_exception
+from clients.tavily_client import TavilyClient
 
 
 class TestQueryBuilder:
@@ -75,3 +78,46 @@ class TestWithCorroboratingEvidence:
         self, informal_mod_triple, tavily_with_results, store
     ):
         ...
+
+
+class TestTavilyLive:
+    """Integration tests that hit the real Tavily API.
+
+    Skipped automatically when TAVILY_API_KEY is not set so they never block CI.
+    Run locally with a valid key to confirm the API is reachable.
+    """
+
+    @pytest.fixture
+    def live_tavily(self) -> TavilyClient:
+        api_key = os.environ.get("TAVILY_API_KEY", "")
+        if not api_key:
+            pytest.skip("TAVILY_API_KEY not set in environment")
+        # Probe with the raw client so auth errors aren't silently swallowed
+        try:
+            from tavily import TavilyClient as _Tavily  # type: ignore[import]
+            _Tavily(api_key=api_key).search(query="test", max_results=1)
+        except Exception as e:
+            pytest.skip(f"Tavily API unreachable or key invalid: {e}")
+        return TavilyClient(api_key)
+
+    def test_search_returns_results(self, live_tavily):
+        """A plain search query should return at least one result."""
+        results = live_tavily.search("office paper price increase 2024", max_results=3)
+        print(results)
+        assert len(results) > 0, "Expected at least one result from Tavily"
+
+    def test_result_fields_populated(self, live_tavily):
+        """Every returned result must have non-empty title, url, and content."""
+        results = live_tavily.search("supply chain shortage paper", max_results=3)
+        assert results, "Expected at least one result"
+        for r in results:
+            assert r.title, f"Empty title in result: {r}"
+            assert r.url, f"Empty url in result: {r}"
+            assert r.content, f"Empty content in result: {r}"
+            assert 0.0 <= r.score <= 1.0, f"Score out of range: {r.score}"
+
+    def test_results_sorted_by_score_descending(self, live_tavily):
+        """Results must come back sorted highest score first."""
+        results = live_tavily.search("paper supplier price change", max_results=5)
+        scores = [r.score for r in results]
+        assert scores == sorted(scores, reverse=True), "Results not sorted by score desc"
