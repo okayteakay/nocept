@@ -60,6 +60,59 @@ class AppConfig(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    # Celery background worker
+    celery_broker_url: str = Field(
+        default="redis://localhost:6379/1",
+        alias="CELERY_BROKER_URL",
+        description="Celery broker URL (Redis instance)",
+    )
+    celery_result_backend: str = Field(
+        default="redis://localhost:6379/1",
+        alias="CELERY_RESULT_BACKEND",
+        description="Celery result backend URL",
+    )
+
+    # Notifications — Slack
+    slack_webhook_url: str = Field(
+        default="",
+        alias="SLACK_WEBHOOK_URL",
+        description="Slack incoming webhook URL for escalation alerts",
+    )
+    slack_escalation_channel: str = Field(
+        default="#ap-escalations",
+        alias="SLACK_ESCALATION_CHANNEL",
+        description="Slack channel for escalated exceptions",
+    )
+
+    # Notifications — Email (SMTP)
+    smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_user: str = Field(default="", alias="SMTP_USER")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from_email: str = Field(default="noreply@meridian-ap.local", alias="SMTP_FROM_EMAIL")
+    notification_email_to: str = Field(
+        default="",
+        alias="NOTIFICATION_EMAIL_TO",
+        description="Comma-separated list of email addresses for escalation alerts",
+    )
+
+    # SAP Webhook security
+    sap_webhook_secret: str = Field(
+        default="",
+        alias="SAP_WEBHOOK_SECRET",
+        description="Shared secret for SAP webhook HMAC-SHA256 signature verification",
+    )
+
+    # JWT/OAuth2 authentication
+    jwt_secret_key: str = Field(
+        default="dev-secret-key-change-in-production",
+        alias="JWT_SECRET_KEY",
+        description="Secret key for signing JWT tokens",
+    )
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    jwt_access_token_expire_minutes: int = Field(default=30, alias="JWT_ACCESS_TOKEN_EXPIRE_MINUTES")
+    jwt_refresh_token_expire_days: int = Field(default=7, alias="JWT_REFRESH_TOKEN_EXPIRE_DAYS")
+
     model_config = {
         "env_file": str(Path(__file__).resolve().parent.parent / ".env"),
         "populate_by_name": True,

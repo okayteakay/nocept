@@ -98,14 +98,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Invoice Exception Resolution — Agent Tools",
+    title="Invoice Exception Resolution — Autonomous Agent API",
     description=(
-        "Six tools powering the autonomous invoice exception resolution agent. "
-        "Import /openapi.json into IBM watsonx Orchestrate to register all tools at once."
+        "RESTful API for invoice exception resolution using autonomous LangGraph agents. "
+        "Integrates with SAP S/4HANA webhooks, runs resolution pipeline asynchronously via Celery, "
+        "and exposes both tool-level and dashboard-level endpoints."
     ),
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan,
 )
+
+# Include authentication router
+from auth.jwt_auth import router as auth_router
+app.include_router(auth_router)
 
 
 def _get_store() -> RedisStateStore:
