@@ -91,78 +91,101 @@ def check_communications(exception: InvoiceException) -> CommsCheckResult:
     Search all emails and transcripts linked to the exception.
 
     Uses an OpenAI-compatible LLM to read each communication and decide
-    whether it directly confirms the exception cause.
+    whether it directly confirms the exception cause. Gracefully falls back
+    to keyword analysis if LLM is unavailable.
     """
-    total_checked = len(exception.related_emails) + len(exception.related_transcripts)
+    try:
+        total_checked = len(exception.related_emails) + len(exception.related_transcripts)
 
-    if total_checked == 0:
+        if total_checked == 0:
+            return CommsCheckResult(
+                auto_approve=False,
+                best_confirmation=None,
+                total_checked=0,
+                reasoning=(
+                    "No emails or transcripts are linked to this exception. "
+                    "Cannot confirm via communications."
+                ),
+            )
+
+        try:
+            client = _get_client()
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM client: {e}. Will use keyword fallback only.", exc_info=True)
+            client = None
+
+        best_conf: Optional[CommsConfirmation] = None
+        best_confidence = 0.0
+
+        for email in exception.related_emails:
+            try:
+                result = _analyse_with_llm(
+                    text=f"Subject: {email.subject}\n\n{email.body}",
+                    source_type="email",
+                    source_id=email.email_id,
+                    exception=exception,
+                    client=client,
+                )
+                if result and result.confidence > best_confidence:
+                    best_confidence = result.confidence
+                    best_conf = result
+            except Exception as e:
+                logger.warning(f"Error analyzing email {email.email_id}: {e}")
+                continue
+
+        for transcript in exception.related_transcripts:
+            try:
+                result = _analyse_with_llm(
+                    text=transcript.transcript,
+                    source_type="transcript",
+                    source_id=transcript.transcript_id,
+                    exception=exception,
+                    client=client,
+                )
+                if result and result.confidence > best_confidence:
+                    best_confidence = result.confidence
+                    best_conf = result
+            except Exception as e:
+                logger.warning(f"Error analyzing transcript {transcript.transcript_id}: {e}")
+                continue
+
+        should_approve = best_confidence >= COMMS_CONFIRMATION_THRESHOLD
+
+        if best_conf is None:
+            reasoning = (
+                f"Checked {total_checked} communication(s) but no relevant content found. "
+                "Cannot confirm via communications."
+            )
+        elif should_approve:
+            reasoning = (
+                f"Communication {best_conf.source_id} directly confirms this exception "
+                f"(confidence {best_confidence:.2f}). "
+                f"Source type: {best_conf.source_type}. "
+                f'Excerpt: "{best_conf.excerpt[:250]}". '
+                "Auto-approving based on communication evidence."
+            )
+        else:
+            reasoning = (
+                f"Checked {total_checked} communication(s). "
+                f"Best confidence: {best_confidence:.2f} "
+                f"(threshold: {COMMS_CONFIRMATION_THRESHOLD}). "
+                "Communications do not sufficiently confirm this exception."
+            )
+
+        return CommsCheckResult(
+            auto_approve=should_approve,
+            best_confirmation=best_conf,
+            total_checked=total_checked,
+            reasoning=reasoning,
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in check_communications: {e}", exc_info=True)
         return CommsCheckResult(
             auto_approve=False,
             best_confirmation=None,
             total_checked=0,
-            reasoning=(
-                "No emails or transcripts are linked to this exception. "
-                "Cannot confirm via communications."
-            ),
+            reasoning="Error during communication check. See logs for details.",
         )
-
-    client = _get_client()
-    best_conf: Optional[CommsConfirmation] = None
-    best_confidence = 0.0
-
-    for email in exception.related_emails:
-        result = _analyse_with_llm(
-            text=f"Subject: {email.subject}\n\n{email.body}",
-            source_type="email",
-            source_id=email.email_id,
-            exception=exception,
-            client=client,
-        )
-        if result and result.confidence > best_confidence:
-            best_confidence = result.confidence
-            best_conf = result
-
-    for transcript in exception.related_transcripts:
-        result = _analyse_with_llm(
-            text=transcript.transcript,
-            source_type="transcript",
-            source_id=transcript.transcript_id,
-            exception=exception,
-            client=client,
-        )
-        if result and result.confidence > best_confidence:
-            best_confidence = result.confidence
-            best_conf = result
-
-    should_approve = best_confidence >= COMMS_CONFIRMATION_THRESHOLD
-
-    if best_conf is None:
-        reasoning = (
-            f"Checked {total_checked} communication(s) but LLM found no relevant content. "
-            "Cannot confirm via communications."
-        )
-    elif should_approve:
-        reasoning = (
-            f"Communication {best_conf.source_id} directly confirms this exception "
-            f"(confidence {best_confidence:.2f}). "
-            f"Source type: {best_conf.source_type}. "
-            f'Excerpt: "{best_conf.excerpt[:250]}". '
-            "Auto-approving based on communication evidence."
-        )
-    else:
-        reasoning = (
-            f"Checked {total_checked} communication(s). "
-            f"Best confidence: {best_confidence:.2f} "
-            f"(threshold: {COMMS_CONFIRMATION_THRESHOLD}). "
-            "Communications do not sufficiently confirm this exception."
-        )
-
-    return CommsCheckResult(
-        auto_approve=should_approve,
-        best_confirmation=best_conf,
-        total_checked=total_checked,
-        reasoning=reasoning,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -170,9 +193,19 @@ def check_communications(exception: InvoiceException) -> CommsCheckResult:
 # ---------------------------------------------------------------------------
 
 def _get_client() -> OpenAI:
+    """Initialize OpenAI client with timeout and retry configuration."""
     api_key  = os.environ.get("OPENAI_API_KEY", "")
-    base_url = os.environ.get("OPENAI_BASE_URL", "")  # set to nanogpt endpoint in .env
-    kwargs: dict = {"api_key": api_key}
+    base_url = os.environ.get("OPENAI_BASE_URL", "")
+    timeout = float(os.environ.get("OPENAI_TIMEOUT_SECS", "30"))
+
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY environment variable is not set")
+
+    kwargs: dict = {
+        "api_key": api_key,
+        "timeout": timeout,
+        "max_retries": 2,
+    }
     if base_url:
         kwargs["base_url"] = base_url
     return OpenAI(**kwargs)
@@ -206,20 +239,35 @@ def _analyse_with_llm(
     source_type: str,
     source_id: str,
     exception: InvoiceException,
-    client: OpenAI,
+    client: Optional[OpenAI],
 ) -> Optional[CommsConfirmation]:
-    """Call an OpenAI-compatible model to assess whether the communication confirms the exception."""
+    """Call an OpenAI-compatible model to assess whether the communication confirms the exception.
+
+    Falls back to keyword analysis if LLM is unavailable or times out.
+    """
+    if client is None:
+        logger.debug(f"LLM client not available for {source_type} {source_id}, using keyword fallback")
+        return _keyword_fallback(text, source_type, source_id, exception)
+
     model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    timeout = float(os.environ.get("OPENAI_TIMEOUT_SECS", "30"))
+
     try:
         response = client.chat.completions.create(
             model=model,
             max_tokens=256,
+            timeout=timeout,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": _build_user_prompt(exception, text)},
             ],
         )
-        raw = response.choices[0].message.content.strip()
+        raw = response.choices[0].message.content
+        if not raw:
+            logger.warning(f"Empty response from LLM for {source_type} {source_id}")
+            return _keyword_fallback(text, source_type, source_id, exception)
+
+        raw = raw.strip()
         parsed = json.loads(raw)
         confidence = float(parsed.get("confidence", 0.0))
         return CommsConfirmation(
@@ -229,10 +277,15 @@ def _analyse_with_llm(
             source_id=source_id,
             excerpt=text[:300],
         )
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse LLM JSON response for {source_type} {source_id}: {e}")
+        return _keyword_fallback(text, source_type, source_id, exception)
+    except TimeoutError as e:
+        logger.warning(f"LLM request timed out for {source_type} {source_id} (>{timeout}s), using keyword fallback")
+        return _keyword_fallback(text, source_type, source_id, exception)
     except Exception as exc:
         logger.warning(
-            "LLM comms check failed for %s %s: %s — falling back to keyword analysis",
-            source_type, source_id, exc,
+            f"LLM comms check failed for {source_type} {source_id}: {exc} — falling back to keyword analysis"
         )
         return _keyword_fallback(text, source_type, source_id, exception)
 

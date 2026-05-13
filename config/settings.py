@@ -113,6 +113,23 @@ class AppConfig(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=30, alias="JWT_ACCESS_TOKEN_EXPIRE_MINUTES")
     jwt_refresh_token_expire_days: int = Field(default=7, alias="JWT_REFRESH_TOKEN_EXPIRE_DAYS")
 
+    # Timeouts and resilience
+    openai_timeout_secs: float = Field(
+        default=30.0,
+        alias="OPENAI_TIMEOUT_SECS",
+        description="Timeout in seconds for OpenAI API calls (comms analysis)",
+    )
+    tavily_timeout_secs: float = Field(
+        default=30.0,
+        alias="TAVILY_TIMEOUT_SECS",
+        description="Timeout in seconds for Tavily search API calls",
+    )
+    redis_timeout_secs: float = Field(
+        default=5.0,
+        alias="REDIS_TIMEOUT_SECS",
+        description="Timeout in seconds for Redis operations",
+    )
+
     model_config = {
         "env_file": str(Path(__file__).resolve().parent.parent / ".env"),
         "populate_by_name": True,

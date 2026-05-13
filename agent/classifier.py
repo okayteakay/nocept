@@ -58,85 +58,118 @@ def classify_exception(
     Returns:
         ClassificationResult with all detected exception types and variances.
     """
-    exception_types: list[ExceptionType] = []
+    try:
+        exception_types: list[ExceptionType] = []
 
-    # 1. Missing GRN
-    if grn is None:
-        exception_types.append(ExceptionType.MISSING_GOODS_RECEIPT)
-        logger.debug("Invoice %s: missing GRN for PO %s", invoice.invoice_number, po.po_number)
+        # 1. Missing GRN
+        if grn is None:
+            exception_types.append(ExceptionType.MISSING_GOODS_RECEIPT)
+            logger.debug("Invoice %s: missing GRN for PO %s", invoice.invoice_number, po.po_number)
 
-    # 2. Duplicate detection (requires store)
-    if store is not None and _check_duplicate(invoice, store):
-        exception_types.append(ExceptionType.DUPLICATE_INVOICE)
-        logger.info(
-            "Invoice %s flagged as duplicate for supplier %s",
-            invoice.invoice_number,
-            invoice.supplier_id,
-        )
-        # Return early — no line-level analysis needed for duplicates
+        # 2. Duplicate detection (requires store)
+        if store is not None:
+            try:
+                if _check_duplicate(invoice, store):
+                    exception_types.append(ExceptionType.DUPLICATE_INVOICE)
+                    logger.info(
+                        "Invoice %s flagged as duplicate for supplier %s",
+                        invoice.invoice_number,
+                        invoice.supplier_id,
+                    )
+                    # Return early — no line-level analysis needed for duplicates
+                    return ClassificationResult(
+                        exception_types=exception_types,
+                        line_variances=[],
+                        total_variance_usd=0.0,
+                        informal_modification_signals=[],
+                    )
+            except Exception as e:
+                logger.warning(f"Duplicate check failed for invoice {invoice.invoice_number}: {e}")
+                # Continue with classification anyway
+
+        # 3. Compute per-line variances
+        try:
+            variances = _compute_line_variances(invoice, po)
+        except Exception as e:
+            logger.error(f"Error computing line variances for invoice {invoice.invoice_number}: {e}", exc_info=True)
+            variances = []
+
+        # 4. Price variance — any non-new SKU with |price delta| > tolerance
+        try:
+            price_variances = [
+                v
+                for v in variances
+                if (
+                    not v.is_new_sku
+                    and v.price_delta_pct is not None
+                    and abs(v.price_delta_pct) > config.price_tolerance_pct
+                )
+            ]
+            if price_variances:
+                exception_types.append(ExceptionType.PRICE_VARIANCE)
+                logger.debug(
+                    "Invoice %s: %d price variance line(s)", invoice.invoice_number, len(price_variances)
+                )
+        except Exception as e:
+            logger.error(f"Error detecting price variances for invoice {invoice.invoice_number}: {e}")
+
+        # 5. Quantity variance — any non-new SKU with quantity delta > tolerance (as % of PO qty)
+        try:
+            qty_variances = [
+                v
+                for v in variances
+                if (
+                    not v.is_new_sku
+                    and v.quantity_delta is not None
+                    and v.po_quantity is not None
+                    and v.po_quantity > 0
+                    and abs(v.quantity_delta) / v.po_quantity > config.qty_tolerance_pct
+                )
+            ]
+            if qty_variances:
+                exception_types.append(ExceptionType.QUANTITY_VARIANCE)
+                logger.debug(
+                    "Invoice %s: %d quantity variance line(s)", invoice.invoice_number, len(qty_variances)
+                )
+        except Exception as e:
+            logger.error(f"Error detecting quantity variances for invoice {invoice.invoice_number}: {e}")
+
+        # 6. Informal modification heuristics
+        try:
+            signals = _detect_informal_modification_signals(variances, po, invoice)
+            if signals:
+                exception_types.append(ExceptionType.INFORMAL_MODIFICATION)
+                logger.debug(
+                    "Invoice %s: informal modification signals: %s",
+                    invoice.invoice_number,
+                    signals,
+                )
+        except Exception as e:
+            logger.error(f"Error detecting informal modifications for invoice {invoice.invoice_number}: {e}", exc_info=True)
+            signals = []
+
+        # Dollar variance: absolute difference between invoice and PO totals
+        try:
+            total_variance_usd = round(abs(invoice.total_amount - po.total_amount), 2)
+        except Exception as e:
+            logger.error(f"Error computing total variance for invoice {invoice.invoice_number}: {e}")
+            total_variance_usd = 0.0
+
         return ClassificationResult(
             exception_types=exception_types,
+            line_variances=variances,
+            total_variance_usd=total_variance_usd,
+            informal_modification_signals=signals,
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error classifying invoice {invoice.invoice_number}: {e}", exc_info=True)
+        # Return a minimal result to prevent pipeline crash
+        return ClassificationResult(
+            exception_types=[],
             line_variances=[],
             total_variance_usd=0.0,
-            informal_modification_signals=[],
+            informal_modification_signals=["Classification error: see logs"],
         )
-
-    # 3. Compute per-line variances
-    variances = _compute_line_variances(invoice, po)
-
-    # 4. Price variance — any non-new SKU with |price delta| > tolerance
-    price_variances = [
-        v
-        for v in variances
-        if (
-            not v.is_new_sku
-            and v.price_delta_pct is not None
-            and abs(v.price_delta_pct) > config.price_tolerance_pct
-        )
-    ]
-    if price_variances:
-        exception_types.append(ExceptionType.PRICE_VARIANCE)
-        logger.debug(
-            "Invoice %s: %d price variance line(s)", invoice.invoice_number, len(price_variances)
-        )
-
-    # 5. Quantity variance — any non-new SKU with quantity delta > tolerance (as % of PO qty)
-    qty_variances = [
-        v
-        for v in variances
-        if (
-            not v.is_new_sku
-            and v.quantity_delta is not None
-            and v.po_quantity is not None
-            and v.po_quantity > 0
-            and abs(v.quantity_delta) / v.po_quantity > config.qty_tolerance_pct
-        )
-    ]
-    if qty_variances:
-        exception_types.append(ExceptionType.QUANTITY_VARIANCE)
-        logger.debug(
-            "Invoice %s: %d quantity variance line(s)", invoice.invoice_number, len(qty_variances)
-        )
-
-    # 6. Informal modification heuristics
-    signals = _detect_informal_modification_signals(variances, po, invoice)
-    if signals:
-        exception_types.append(ExceptionType.INFORMAL_MODIFICATION)
-        logger.debug(
-            "Invoice %s: informal modification signals: %s",
-            invoice.invoice_number,
-            signals,
-        )
-
-    # Dollar variance: absolute difference between invoice and PO totals
-    total_variance_usd = round(abs(invoice.total_amount - po.total_amount), 2)
-
-    return ClassificationResult(
-        exception_types=exception_types,
-        line_variances=variances,
-        total_variance_usd=total_variance_usd,
-        informal_modification_signals=signals,
-    )
 
 
 def _compute_line_variances(
@@ -157,48 +190,63 @@ def _compute_line_variances(
     Returns:
         List of LineItemVariance, one per unique SKU across both documents.
     """
-    all_skus = {item.sku for item in invoice.line_items} | {item.sku for item in po.line_items}
-    variances: list[LineItemVariance] = []
+    try:
+        all_skus = {item.sku for item in invoice.line_items} | {item.sku for item in po.line_items}
+        variances: list[LineItemVariance] = []
 
-    for sku in sorted(all_skus):  # stable ordering
-        inv_item = invoice.line_item_by_sku(sku)
-        po_item = po.line_item_by_sku(sku)
+        for sku in sorted(all_skus):  # stable ordering
+            try:
+                inv_item = invoice.line_item_by_sku(sku)
+                po_item = po.line_item_by_sku(sku)
 
-        quantity_delta: int | None = None
-        price_delta_pct: float | None = None
+                quantity_delta: int | None = None
+                price_delta_pct: float | None = None
 
-        if inv_item is not None and po_item is not None:
-            quantity_delta = inv_item.quantity - po_item.quantity
-            if po_item.unit_price != 0:
-                price_delta_pct = (
-                    inv_item.unit_price - po_item.unit_price
-                ) / po_item.unit_price
+                if inv_item is not None and po_item is not None:
+                    try:
+                        quantity_delta = inv_item.quantity - po_item.quantity
+                        if po_item.unit_price != 0:
+                            price_delta_pct = (
+                                inv_item.unit_price - po_item.unit_price
+                            ) / po_item.unit_price
+                    except (ValueError, ZeroDivisionError, AttributeError) as e:
+                        logger.warning(f"Error computing variance for SKU {sku}: {e}")
 
-        is_new_sku = inv_item is not None and po_item is None
+                is_new_sku = inv_item is not None and po_item is None
 
-        # Expedited shipping: exact SKU match or description keyword
-        ref_item = inv_item or po_item
-        is_expedited = sku == "SHIP-EXP" or (
-            ref_item is not None
-            and "expedited" in ref_item.description.lower()
-        )
+                # Expedited shipping: exact SKU match or description keyword
+                ref_item = inv_item or po_item
+                is_expedited = False
+                try:
+                    is_expedited = sku == "SHIP-EXP" or (
+                        ref_item is not None
+                        and "expedited" in (ref_item.description or "").lower()
+                    )
+                except AttributeError:
+                    pass
 
-        variances.append(
-            LineItemVariance(
-                sku=sku,
-                description=(inv_item or po_item).description,  # type: ignore[union-attr]
-                po_quantity=po_item.quantity if po_item else None,
-                invoice_quantity=inv_item.quantity if inv_item else None,
-                po_unit_price=po_item.unit_price if po_item else None,
-                invoice_unit_price=inv_item.unit_price if inv_item else None,
-                quantity_delta=quantity_delta,
-                price_delta_pct=price_delta_pct,
-                is_new_sku=is_new_sku,
-                is_expedited_shipping=is_expedited,
-            )
-        )
+                variances.append(
+                    LineItemVariance(
+                        sku=sku,
+                        description=(inv_item or po_item).description if (inv_item or po_item) else "Unknown",
+                        po_quantity=po_item.quantity if po_item else None,
+                        invoice_quantity=inv_item.quantity if inv_item else None,
+                        po_unit_price=po_item.unit_price if po_item else None,
+                        invoice_unit_price=inv_item.unit_price if inv_item else None,
+                        quantity_delta=quantity_delta,
+                        price_delta_pct=price_delta_pct,
+                        is_new_sku=is_new_sku,
+                        is_expedited_shipping=is_expedited,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Error processing SKU {sku}: {e}")
+                continue
 
-    return variances
+        return variances
+    except Exception as e:
+        logger.error(f"Error computing line variances: {e}", exc_info=True)
+        return []
 
 
 def _detect_informal_modification_signals(
@@ -303,8 +351,14 @@ def _check_duplicate(invoice: Invoice, store: RedisStateStore) -> bool:
 
     Returns:
         True if a prior exception with the same invoice number is found.
+        Returns False if Redis is unavailable (fails open).
     """
-    existing = store.list_by_supplier(invoice.supplier_id)
-    return any(
-        e.invoice.invoice_number == invoice.invoice_number for e in existing
-    )
+    try:
+        existing = store.list_by_supplier(invoice.supplier_id)
+        return any(
+            e.invoice.invoice_number == invoice.invoice_number for e in existing
+        )
+    except Exception as e:
+        logger.error(f"Error checking for duplicates in Redis for supplier {invoice.supplier_id}: {e}")
+        # Fail open: assume not a duplicate if Redis is down
+        return False

@@ -151,133 +151,265 @@ def run_pipeline(
     audit: AuditLogger,
     config: AppConfig,
 ) -> PipelineResult:
-    """Execute the full exception resolution pipeline for one invoice."""
+    """Execute the full exception resolution pipeline for one invoice.
+
+    Handles failures gracefully by escalating to human review if any step fails.
+    All exceptions are caught and logged; pipeline always returns a result.
+    """
     start_time = time.time()
 
-    # a. Initialize working record
-    exception = InvoiceException(
-        invoice=invoice,
-        purchase_order=po,
-        grn=grn,
-        state=ExceptionState.RECEIVED,
-    )
+    try:
+        # a. Initialize working record
+        exception = InvoiceException(
+            invoice=invoice,
+            purchase_order=po,
+            grn=grn,
+            state=ExceptionState.RECEIVED,
+        )
 
-    # b. Classify -> build InvoiceException, persist RECEIVED
-    class_res = classify_exception(invoice, po, grn, config, store=store)
-    exception.exception_types = class_res.exception_types
-    exception.line_variances = class_res.line_variances
-    exception.total_variance_usd = class_res.total_variance_usd
+        # b. Classify -> build InvoiceException, persist RECEIVED
+        try:
+            class_res = classify_exception(invoice, po, grn, config, store=store)
+            exception.exception_types = class_res.exception_types
+            exception.line_variances = class_res.line_variances
+            exception.total_variance_usd = class_res.total_variance_usd
+        except Exception as e:
+            logger.error(f"Classification failed for invoice {invoice.invoice_number}: {e}", exc_info=True)
+            exception.exception_types = []
+            exception.total_variance_usd = 0.0
+            exception.line_variances = []
 
-    store.save(exception)
-    audit.log(AuditEvent(
-        exception_id=exception.exception_id,
-        event_type="classification",
-        details={"types": [t.value for t in class_res.exception_types], "variance": class_res.total_variance_usd}
-    ))
-    # Short-circuit if straight-through (no exceptions)
-    if not exception.exception_types:
-        context = retrieve_supplier_context(invoice.supplier_id, store)
+        try:
+            store.save(exception)
+        except Exception as e:
+            logger.error(f"Failed to save exception to Redis: {e}", exc_info=True)
+
+        try:
+            audit.log(AuditEvent(
+                exception_id=exception.exception_id,
+                event_type="classification",
+                details={"types": [t.value for t in class_res.exception_types], "variance": class_res.total_variance_usd}
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to log classification audit event: {e}")
+        # Short-circuit if straight-through (no exceptions)
+        if not exception.exception_types:
+            try:
+                context = retrieve_supplier_context(invoice.supplier_id, store)
+            except Exception as e:
+                logger.warning(f"Failed to retrieve supplier context: {e}")
+                context = SupplierContext(
+                    supplier_id=invoice.supplier_id,
+                    historical_exceptions=[],
+                    substitution_patterns=[],
+                    average_price_uplift_pct=None,
+                    exception_rate=None,
+                )
+
+            research = ResearchResult(
+                queries_run=[],
+                findings=[],
+                relevance_summary="Skipped research for straight-through invoice.",
+                supports_informal_modification=False,
+                supporting_evidence=[],
+            )
+            decision = RulesDecision(
+                action=ResolutionAction.AUTO_APPROVE,
+                root_cause=RootCause.POLICY_COMPLIANT_VARIANCE,
+                confidence=1.0,
+                reasoning="Straight-through processing: no variances detected.",
+                auto_resolvable=True,
+            )
+
+            try:
+                memo = generate_memo(exception, decision, research, context)
+            except Exception as e:
+                logger.error(f"Failed to generate memo: {e}", exc_info=True)
+                memo = None
+
+            res = Resolution(exception_id=exception.exception_id, memo=memo, final_state=ExceptionState.RESOLVED)
+            try:
+                store.save_resolution(res)
+                audit.log_resolution(res)
+            except Exception as e:
+                logger.error(f"Failed to save resolution: {e}", exc_info=True)
+
+            return PipelineResult(
+                exception=exception,
+                resolution=res,
+                context=context,
+                research=research,
+                elapsed_seconds=time.time() - start_time
+            )
+
+        # c. Retrieve supplier context from Redis
+        try:
+            context = retrieve_supplier_context(invoice.supplier_id, store)
+        except Exception as e:
+            logger.warning(f"Failed to retrieve supplier context: {e}")
+            context = SupplierContext(
+                supplier_id=invoice.supplier_id,
+                historical_exceptions=[],
+                substitution_patterns=[],
+                average_price_uplift_pct=None,
+                exception_rate=None,
+            )
+
+        try:
+            audit.log(AuditEvent(
+                exception_id=exception.exception_id,
+                event_type="context_retrieved",
+                details={"supplier_id": invoice.supplier_id}
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to log context_retrieved event: {e}")
+
+        # d. Transition to TRIAGED and evaluate the gates in order.
+        try:
+            store.transition(exception.exception_id, ExceptionState.TRIAGED)
+            audit.log_transition(exception.exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
+        except Exception as e:
+            logger.error(f"Failed to transition to TRIAGED: {e}", exc_info=True)
+
         research = ResearchResult(
             queries_run=[],
             findings=[],
-            relevance_summary="Skipped research for straight-through invoice.",
+            relevance_summary="Research step not needed.",
             supports_informal_modification=False,
             supporting_evidence=[],
         )
-        decision = RulesDecision(
-            action=ResolutionAction.AUTO_APPROVE,
-            root_cause=RootCause.POLICY_COMPLIANT_VARIANCE,
-            confidence=1.0,
-            reasoning="Straight-through processing: no variances detected.",
-            auto_resolvable=True,
-        )
 
-        memo = generate_memo(exception, decision, research, context)
-        res = Resolution(exception_id=exception.exception_id, memo=memo, final_state=ExceptionState.RESOLVED)
-        store.save_resolution(res)
-        audit.log_resolution(res)
+        try:
+            decision = gate_tolerance(exception, config)
+        except Exception as e:
+            logger.error(f"Gate tolerance evaluation failed: {e}", exc_info=True)
+            decision = None
+
+        if decision is None:
+            try:
+                history_result = check_historical_approval(exception)
+                if history_result.auto_approve:
+                    decision, _ = gate_history(exception)
+            except Exception as e:
+                logger.warning(f"History gate evaluation failed: {e}")
+                decision = None
+
+        if decision is None:
+            try:
+                comms_result = check_communications(exception)
+                if comms_result.auto_approve:
+                    decision, _ = gate_communications(exception)
+            except Exception as e:
+                logger.warning(f"Communications gate evaluation failed: {e}")
+                decision = None
+
+        if decision is None:
+            try:
+                store.transition(exception.exception_id, ExceptionState.RESEARCHING)
+                audit.log_transition(exception.exception_id, ExceptionState.TRIAGED, ExceptionState.RESEARCHING)
+            except Exception as e:
+                logger.warning(f"Failed to transition to RESEARCHING: {e}")
+
+            try:
+                research = research_exception(exception, context, tavily)
+                audit.log(AuditEvent(
+                    exception_id=exception.exception_id,
+                    event_type="research_complete",
+                    details={"queries": research.queries_run}
+                ))
+            except Exception as e:
+                logger.error(f"Research step failed: {e}", exc_info=True)
+                # Continue with escalation
+
+            try:
+                decision = gate_research(exception, research) or gate_escalate()
+            except Exception as e:
+                logger.error(f"Gate research/escalate evaluation failed: {e}", exc_info=True)
+                decision = gate_escalate()  # Force escalation on error
+
+        try:
+            audit.log(AuditEvent(
+                exception_id=exception.exception_id,
+                event_type="rules_applied",
+                details={"decision": decision.action.value, "root_cause": decision.root_cause.value}
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to log rules_applied event: {e}")
+
+        # f. Generate ResolutionMemo
+        try:
+            memo = generate_memo(exception, decision, research, context)
+        except Exception as e:
+            logger.error(f"Failed to generate memo: {e}", exc_info=True)
+            memo = None
+
+        try:
+            audit.log(AuditEvent(
+                exception_id=exception.exception_id,
+                event_type="memo_generated"
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to log memo_generated event: {e}")
+
+        # g. Transition to RESOLVED or ESCALATED, persist Resolution
+        try:
+            final_state = ExceptionState.RESOLVED if decision.auto_resolvable else ExceptionState.ESCALATED
+            store.transition(exception.exception_id, final_state)
+            audit.log_transition(exception.exception_id, ExceptionState.RESEARCHING, final_state)
+        except Exception as e:
+            logger.error(f"Failed to transition to final state: {e}", exc_info=True)
+            final_state = ExceptionState.ESCALATED  # Escalate on state transition error
+
+        resolution = Resolution(
+            exception_id=exception.exception_id,
+            memo=memo,
+            final_state=final_state
+        )
+        try:
+            store.save_resolution(resolution)
+            audit.log_resolution(resolution)
+        except Exception as e:
+            logger.error(f"Failed to save resolution: {e}", exc_info=True)
 
         return PipelineResult(
             exception=exception,
-            resolution=res,
+            resolution=resolution,
             context=context,
             research=research,
             elapsed_seconds=time.time() - start_time
         )
-
-    # c. Retrieve supplier context from Redis
-    context = retrieve_supplier_context(invoice.supplier_id, store)
-    audit.log(AuditEvent(
-        exception_id=exception.exception_id,
-        event_type="context_retrieved",
-        details={"supplier_id": invoice.supplier_id}
-    ))
-
-    # d. Transition to TRIAGED and evaluate the gates in order.
-    store.transition(exception.exception_id, ExceptionState.TRIAGED)
-    audit.log_transition(exception.exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
-
-    research = ResearchResult(
-        queries_run=[],
-        findings=[],
-        relevance_summary="Research step not needed.",
-        supports_informal_modification=False,
-        supporting_evidence=[],
-    )
-    decision = gate_tolerance(exception, config)
-
-    if decision is None:
-        history_result = check_historical_approval(exception)
-        if history_result.auto_approve:
-            decision, _ = gate_history(exception)
-
-    if decision is None:
-        comms_result = check_communications(exception)
-        if comms_result.auto_approve:
-            decision, _ = gate_communications(exception)
-
-    if decision is None:
-        store.transition(exception.exception_id, ExceptionState.RESEARCHING)
-        audit.log_transition(exception.exception_id, ExceptionState.TRIAGED, ExceptionState.RESEARCHING)
-
-        research = research_exception(exception, context, tavily)
-        audit.log(AuditEvent(
+    except Exception as e:
+        logger.error(f"Unexpected error in pipeline for invoice {invoice.invoice_number}: {e}", exc_info=True)
+        # Create a minimal escalation result
+        exception = InvoiceException(
+            invoice=invoice,
+            purchase_order=po,
+            grn=grn,
+            state=ExceptionState.ESCALATED,
+        )
+        resolution = Resolution(
             exception_id=exception.exception_id,
-            event_type="research_complete",
-            details={"queries": research.queries_run}
-        ))
-        decision = gate_research(exception, research) or gate_escalate()
-
-    audit.log(AuditEvent(
-        exception_id=exception.exception_id,
-        event_type="rules_applied",
-        details={"decision": decision.action.value, "root_cause": decision.root_cause.value}
-    ))
-
-    # f. Generate ResolutionMemo
-    memo = generate_memo(exception, decision, research, context)
-    audit.log(AuditEvent(
-        exception_id=exception.exception_id,
-        event_type="memo_generated"
-    ))
-
-    # g. Transition to RESOLVED or ESCALATED, persist Resolution
-    final_state = ExceptionState.RESOLVED if decision.auto_resolvable else ExceptionState.ESCALATED
-    store.transition(exception.exception_id, final_state)
-    audit.log_transition(exception.exception_id, ExceptionState.RESEARCHING, final_state)
-
-    resolution = Resolution(
-        exception_id=exception.exception_id,
-        memo=memo,
-        final_state=final_state
-    )
-    store.save_resolution(resolution)
-    audit.log_resolution(resolution)
-
-    return PipelineResult(
-        exception=exception,
-        resolution=resolution,
-        context=context,
-        research=research,
-        elapsed_seconds=time.time() - start_time
-    )
+            memo=None,
+            final_state=ExceptionState.ESCALATED
+        )
+        context = SupplierContext(
+            supplier_id=invoice.supplier_id,
+            historical_exceptions=[],
+            substitution_patterns=[],
+            average_price_uplift_pct=None,
+            exception_rate=None,
+        )
+        research = ResearchResult(
+            queries_run=[],
+            findings=[],
+            relevance_summary="Pipeline error - research not performed",
+            supports_informal_modification=False,
+            supporting_evidence=[],
+        )
+        return PipelineResult(
+            exception=exception,
+            resolution=resolution,
+            context=context,
+            research=research,
+            elapsed_seconds=time.time() - start_time
+        )
