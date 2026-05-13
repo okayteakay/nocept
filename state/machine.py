@@ -19,9 +19,17 @@ VALID_TRANSITIONS: dict[ExceptionState, set[ExceptionState]] = {
     ExceptionState.PENDING_APPROVAL: {
         ExceptionState.RESOLVED,
         ExceptionState.ESCALATED,
+        ExceptionState.APPROVED,
+        ExceptionState.REJECTED,
     },
+    ExceptionState.ESCALATED: {
+        ExceptionState.APPROVED,
+        ExceptionState.REJECTED,
+        ExceptionState.RESOLVED,
+    },
+    ExceptionState.APPROVED: set(),
+    ExceptionState.REJECTED: set(),
     ExceptionState.RESOLVED: set(),
-    ExceptionState.ESCALATED: {ExceptionState.RESOLVED},
 }
 
 

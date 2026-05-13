@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Annotated
 
 import redis as redis_lib
@@ -637,6 +638,128 @@ async def resolve(
     )
 
 
+class ApprovalRequest(BaseModel):
+    approved_by: str = Field(description="User ID or email of approver")
+    notes: str | None = Field(default=None, description="Optional approval notes")
+
+
+class ApprovalResponse(BaseModel):
+    exception_id: str
+    status: str
+    message: str
+
+
+class RejectionRequest(BaseModel):
+    rejected_by: str = Field(description="User ID or email of reviewer")
+    reason: str = Field(description="Reason for rejection")
+
+
+class RejectionResponse(BaseModel):
+    exception_id: str
+    status: str
+    message: str
+
+
+@app.post(
+    "/tools/approve/{exception_id}",
+    response_model=ApprovalResponse,
+    tags=["Human Approval"],
+    summary="Manually Approve Escalated Exception",
+)
+async def approve(
+    exception_id: str,
+    req: ApprovalRequest,
+    store: Store,
+    r: R,
+    audit: Audit,
+) -> ApprovalResponse:
+    exc = _load_exc(r, exception_id, store)
+
+    if exc.state not in (ExceptionState.ESCALATED, ExceptionState.PENDING_APPROVAL):
+        raise HTTPException(
+            400,
+            f"Cannot approve exception in state '{exc.state.value}'. "
+            f"Only ESCALATED or PENDING_APPROVAL exceptions can be approved.",
+        )
+
+    exc.approved_by = req.approved_by
+    exc.approval_notes = req.notes
+    exc.approval_timestamp = datetime.now(timezone.utc)
+
+    _walk_to_final(store, audit, exception_id, exc.state, ExceptionState.APPROVED)
+    store.save(exc)
+    _rset(r, _EXC_PFX, exception_id, exc.model_dump_json())
+
+    audit.log(
+        AuditEvent(
+            exception_id=exception_id,
+            event_type="human_approval",
+            actor=req.approved_by,
+            details={
+                "action": "approved",
+                "notes": req.notes or "",
+                "timestamp": exc.approval_timestamp.isoformat(),
+            },
+        )
+    )
+
+    return ApprovalResponse(
+        exception_id=exception_id,
+        status="approved",
+        message=f"Exception approved by {req.approved_by}. Notes: {req.notes or 'None'}",
+    )
+
+
+@app.post(
+    "/tools/reject/{exception_id}",
+    response_model=RejectionResponse,
+    tags=["Human Approval"],
+    summary="Manually Reject Escalated Exception",
+)
+async def reject(
+    exception_id: str,
+    req: RejectionRequest,
+    store: Store,
+    r: R,
+    audit: Audit,
+) -> RejectionResponse:
+    exc = _load_exc(r, exception_id, store)
+
+    if exc.state not in (ExceptionState.ESCALATED, ExceptionState.PENDING_APPROVAL):
+        raise HTTPException(
+            400,
+            f"Cannot reject exception in state '{exc.state.value}'. "
+            f"Only ESCALATED or PENDING_APPROVAL exceptions can be rejected.",
+        )
+
+    exc.rejected_by = req.rejected_by
+    exc.rejection_reason = req.reason
+    exc.rejection_timestamp = datetime.now(timezone.utc)
+
+    _walk_to_final(store, audit, exception_id, exc.state, ExceptionState.REJECTED)
+    store.save(exc)
+    _rset(r, _EXC_PFX, exception_id, exc.model_dump_json())
+
+    audit.log(
+        AuditEvent(
+            exception_id=exception_id,
+            event_type="human_rejection",
+            actor=req.rejected_by,
+            details={
+                "action": "rejected",
+                "reason": req.reason,
+                "timestamp": exc.rejection_timestamp.isoformat(),
+            },
+        )
+    )
+
+    return RejectionResponse(
+        exception_id=exception_id,
+        status="rejected",
+        message=f"Exception rejected by {req.rejected_by}. Reason: {req.reason}",
+    )
+
+
 def _straight_through_decision() -> RulesDecision:
     return RulesDecision(
         action=ResolutionAction.AUTO_APPROVE,
@@ -696,6 +819,121 @@ def _walk_to_final(
         store.transition(eid, next_state)
         audit.log_transition(eid, prev, next_state)
         prev = next_state
+
+
+class ExceptionSummary(BaseModel):
+    exception_id: str
+    invoice_number: str
+    po_number: str
+    supplier_name: str
+    supplier_id: str
+    exception_types: list[str]
+    total_variance_usd: float
+    variance_percentage: float
+    state: str
+    created_at: datetime
+    approved_by: str | None = None
+    rejected_by: str | None = None
+
+
+class ExceptionListRequest(BaseModel):
+    supplier_id: str | None = None
+    supplier_name: str | None = None
+    invoice_number: str | None = None
+    po_number: str | None = None
+    status: str | None = None
+    variance_min: float | None = None
+    variance_max: float | None = None
+    limit: int = 50
+    offset: int = 0
+
+
+class ExceptionListResponse(BaseModel):
+    exceptions: list[ExceptionSummary]
+    total_count: int
+    limit: int
+    offset: int
+
+
+@app.post(
+    "/exceptions/list",
+    response_model=ExceptionListResponse,
+    tags=["Dashboard"],
+    summary="List Exceptions with Search/Filter",
+)
+async def list_exceptions(
+    req: ExceptionListRequest,
+    store: Store,
+    r: R,
+) -> ExceptionListResponse:
+    # Get all exception IDs from store
+    all_ids: set[str] = set(store.list_queue_ids())
+    for state in ExceptionState:
+        all_ids.update(store.list_by_state(state))
+
+    # Load and filter exceptions
+    filtered_exceptions: list[InvoiceException] = []
+    for exception_id in all_ids:
+        try:
+            exc = store.load(exception_id)
+
+            # Apply filters
+            if req.invoice_number and exc.invoice.invoice_number != req.invoice_number:
+                continue
+            if req.po_number and exc.purchase_order.po_number != req.po_number:
+                continue
+            if req.supplier_id and exc.purchase_order.supplier_id != req.supplier_id:
+                continue
+            if req.supplier_name and req.supplier_name.lower() not in exc.supplier_name.lower():
+                continue
+            if req.status and exc.state.value != req.status:
+                continue
+            if req.variance_min is not None and exc.total_variance_usd < req.variance_min:
+                continue
+            if req.variance_max is not None and exc.total_variance_usd > req.variance_max:
+                continue
+
+            filtered_exceptions.append(exc)
+        except KeyError:
+            continue
+
+    # Sort by created_at descending
+    filtered_exceptions.sort(key=lambda e: e.created_at, reverse=True)
+
+    # Paginate
+    total_count = len(filtered_exceptions)
+    paginated = filtered_exceptions[req.offset : req.offset + req.limit]
+
+    # Convert to summaries
+    summaries = []
+    for exc in paginated:
+        variance_pct = (
+            (abs(exc.total_variance_usd) / exc.purchase_order.total_amount * 100)
+            if exc.purchase_order.total_amount > 0
+            else 0.0
+        )
+        summary = ExceptionSummary(
+            exception_id=exc.exception_id,
+            invoice_number=exc.invoice.invoice_number,
+            po_number=exc.purchase_order.po_number,
+            supplier_name=exc.supplier_name,
+            supplier_id=exc.purchase_order.supplier_id,
+            exception_types=[t.value for t in exc.exception_types],
+            total_variance_usd=exc.total_variance_usd,
+            variance_percentage=variance_pct,
+            state=exc.state.value,
+            created_at=exc.created_at,
+            approved_by=exc.approved_by,
+            rejected_by=exc.rejected_by,
+        )
+        summaries.append(summary)
+
+    return ExceptionListResponse(
+        exceptions=summaries,
+        total_count=total_count,
+        limit=req.limit,
+        offset=req.offset,
+    )
 
 
 class KBEmailSearchRequest(BaseModel):
@@ -770,3 +1008,93 @@ async def search_transcripts(
 )
 async def supplier_history(supplier_id: str, kb: KB) -> dict:
     return kb.resolutions.supplier_summary(supplier_id)
+
+
+# Analytics Endpoints
+class AnalyticsSummaryResponse(BaseModel):
+    kpis: dict
+    supplier_scorecard: list[dict]
+    trends: dict
+    timestamp: str
+
+
+@app.get(
+    "/analytics/summary",
+    response_model=AnalyticsSummaryResponse,
+    tags=["Analytics"],
+    summary="Get KPI Dashboard Summary",
+)
+async def get_analytics_summary(
+    days: int = 30,
+    store: Store = Depends(_get_store),
+) -> AnalyticsSummaryResponse:
+    from analytics.calculator import AnalyticsCalculator
+    from datetime import timedelta
+
+    calculator = AnalyticsCalculator(store)
+    date_from = datetime.now(timezone.utc) - timedelta(days=days)
+    summary = calculator.get_summary(date_from=date_from)
+
+    return AnalyticsSummaryResponse(
+        kpis=summary["kpis"],
+        supplier_scorecard=summary["supplier_scorecard"],
+        trends=summary["trends"],
+        timestamp=summary["timestamp"],
+    )
+
+
+# Rules Engine Endpoints
+_rules_store: list[dict] = []  # In-memory rules store (use Redis in production)
+
+
+class RulesListResponse(BaseModel):
+    rules: list[dict]
+    total: int
+
+
+@app.get(
+    "/rules",
+    response_model=RulesListResponse,
+    tags=["Rules"],
+    summary="List all approval rules",
+)
+async def list_rules() -> RulesListResponse:
+    return RulesListResponse(rules=_rules_store, total=len(_rules_store))
+
+
+@app.post(
+    "/rules",
+    response_model=dict,
+    tags=["Rules"],
+    summary="Create new approval rule",
+)
+async def create_rule(rule: dict) -> dict:
+    rule["rule_id"] = str(Annotated)  # Generate ID
+    _rules_store.append(rule)
+    return {"status": "created", "rule_id": rule.get("rule_id")}
+
+
+@app.put(
+    "/rules/{rule_id}",
+    response_model=dict,
+    tags=["Rules"],
+    summary="Update approval rule",
+)
+async def update_rule(rule_id: str, rule: dict) -> dict:
+    for i, r in enumerate(_rules_store):
+        if r.get("rule_id") == rule_id:
+            _rules_store[i] = rule
+            return {"status": "updated"}
+    raise HTTPException(404, "Rule not found")
+
+
+@app.delete(
+    "/rules/{rule_id}",
+    response_model=dict,
+    tags=["Rules"],
+    summary="Delete approval rule",
+)
+async def delete_rule(rule_id: str) -> dict:
+    global _rules_store
+    _rules_store = [r for r in _rules_store if r.get("rule_id") != rule_id]
+    return {"status": "deleted"}

@@ -20,6 +20,8 @@ class ExceptionState(str, Enum):
     TRIAGED = "triaged"
     RESEARCHING = "researching"
     PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
     RESOLVED = "resolved"
     ESCALATED = "escalated"
 
@@ -66,6 +68,14 @@ class InvoiceException(BaseModel):
     total_variance_usd: float = 0.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Human approval tracking
+    approved_by: str | None = None  # user ID/email if human-approved
+    approval_notes: str | None = None
+    approval_timestamp: datetime | None = None
+    rejected_by: str | None = None  # user ID/email if human-rejected
+    rejection_reason: str | None = None
+    rejection_timestamp: datetime | None = None
 
     def has_exception_type(self, exc_type: ExceptionType) -> bool:
         """Return True if this exception includes the given type."""

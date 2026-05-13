@@ -45,3 +45,5 @@ data/*.xlsx
 .DS_Store
 Thumbs.db
 .venv/
+
+completion_summary.txt

@@ -836,6 +836,21 @@ def render_exception_queue(store: RedisStateStore) -> str | None:
         st.info("No exceptions found in Redis queue/state indexes.")
         return None
 
+    # Search/Filter Sidebar
+    with st.expander("🔍 Advanced Search & Filters", expanded=False):
+        search_col1, search_col2 = st.columns(2)
+
+        invoice_search = search_col1.text_input(
+            "🔎 Search by Invoice Number",
+            placeholder="INV-2024-12345",
+            key="invoice_search"
+        )
+        po_search = search_col2.text_input(
+            "🔎 Search by PO Number",
+            placeholder="PO-4500000123",
+            key="po_search"
+        )
+
     type_options = sorted(queue_df["Exception Type"].dropna().unique().tolist())
     if "Suspected Informal Modification" in type_options:
         type_options = ["Suspected Informal Modification"] + [
@@ -895,6 +910,12 @@ def render_exception_queue(store: RedisStateStore) -> str | None:
         (filtered["Variance Amount"] >= variance_range[0])
         & (filtered["Variance Amount"] <= variance_range[1])
     ]
+
+    # Apply invoice/PO search
+    if invoice_search:
+        filtered = filtered[filtered["Invoice Number"].str.contains(invoice_search, case=False, na=False)]
+    if po_search:
+        filtered = filtered[filtered["PO Number"].str.contains(po_search, case=False, na=False)]
 
     if filtered.empty:
         st.warning("No exceptions match the current filter selection.")
@@ -979,6 +1000,101 @@ def render_resolution_detail(
     top_cols[1].metric("Supplier", exc.invoice.supplier_name)
     top_cols[2].metric("Variance", _safe_currency(abs(exc.total_variance_usd)))
     top_cols[3].metric("Current Status", _status_badge(exc.state.value))
+
+    # Human Approval Section
+    if exc.state in (ExceptionState.ESCALATED, ExceptionState.PENDING_APPROVAL):
+        st.markdown("---")
+        st.subheader("📋 Human Approval Required")
+        approval_col1, approval_col2 = st.columns(2)
+
+        with approval_col1:
+            approver_email = st.text_input(
+                "Your Email/Name",
+                placeholder="john@company.com",
+                key=f"approver_{exception_id}"
+            )
+            approval_notes = st.text_area(
+                "Approval Notes (optional)",
+                placeholder="e.g., 'Approved per contract amendment'",
+                key=f"approval_notes_{exception_id}",
+                height=80
+            )
+
+            if st.button("✅ Approve Exception", key=f"approve_btn_{exception_id}"):
+                if not approver_email:
+                    st.error("Please enter your email/name")
+                else:
+                    try:
+                        exc.approved_by = approver_email
+                        exc.approval_notes = approval_notes or None
+                        exc.approval_timestamp = datetime.now(timezone.utc)
+                        store.transition(exception_id, ExceptionState.APPROVED)
+                        store.save(exc)
+                        audit.log(
+                            AuditEvent(
+                                exception_id=exception_id,
+                                event_type="human_approval",
+                                actor=approver_email,
+                                details={
+                                    "action": "approved",
+                                    "notes": approval_notes or "",
+                                    "timestamp": exc.approval_timestamp.isoformat(),
+                                },
+                            )
+                        )
+                        st.success(f"✅ Exception approved by {approver_email}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error approving exception: {str(e)}")
+
+        with approval_col2:
+            rejection_reason = st.text_area(
+                "Rejection Reason (if rejecting)",
+                placeholder="e.g., 'Not per contract terms'",
+                key=f"rejection_reason_{exception_id}",
+                height=80
+            )
+
+            if st.button("❌ Reject Exception", key=f"reject_btn_{exception_id}"):
+                if not approver_email:
+                    st.error("Please enter your email/name")
+                elif not rejection_reason:
+                    st.error("Please provide a rejection reason")
+                else:
+                    try:
+                        exc.rejected_by = approver_email
+                        exc.rejection_reason = rejection_reason
+                        exc.rejection_timestamp = datetime.now(timezone.utc)
+                        store.transition(exception_id, ExceptionState.REJECTED)
+                        store.save(exc)
+                        audit.log(
+                            AuditEvent(
+                                exception_id=exception_id,
+                                event_type="human_rejection",
+                                actor=approver_email,
+                                details={
+                                    "action": "rejected",
+                                    "reason": rejection_reason,
+                                    "timestamp": exc.rejection_timestamp.isoformat(),
+                                },
+                            )
+                        )
+                        st.success(f"❌ Exception rejected by {approver_email}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error rejecting exception: {str(e)}")
+
+    elif exc.state == ExceptionState.APPROVED:
+        st.markdown("---")
+        st.success(f"✅ **Approved by {exc.approved_by}** on {exc.approval_timestamp.strftime('%Y-%m-%d %H:%M:%S') if exc.approval_timestamp else 'N/A'}")
+        if exc.approval_notes:
+            st.info(f"**Notes:** {exc.approval_notes}")
+
+    elif exc.state == ExceptionState.REJECTED:
+        st.markdown("---")
+        st.error(f"❌ **Rejected by {exc.rejected_by}** on {exc.rejection_timestamp.strftime('%Y-%m-%d %H:%M:%S') if exc.rejection_timestamp else 'N/A'}")
+        if exc.rejection_reason:
+            st.warning(f"**Reason:** {exc.rejection_reason}")
 
     tabs = st.tabs(
         [
