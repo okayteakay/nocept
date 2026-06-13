@@ -1,1 +1,1252 @@
-{"openapi":"3.1.0","servers": [{"url": "https://477e-146-70-202-76.ngrok-free.app", "description": "ngrok server"}], "info":{"title":"Invoice Exception Resolution — Agent Tools","description":"Six tools powering the autonomous invoice exception resolution agent. Import /openapi.json into IBM watsonx Orchestrate to register all tools at once.","version":"2.0.0"},"paths":{"/tools/intake":{"post":{"tags":["Tools"],"summary":"Tool 1 — Exception Intake","operationId":"intake_tools_intake_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/IntakeRequest"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/IntakeResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/tools/tolerance/{exception_id}":{"get":{"tags":["Tools"],"summary":"Tool 2 — Tolerance Check","operationId":"tolerance_tools_tolerance__exception_id__get","parameters":[{"name":"exception_id","in":"path","required":true,"schema":{"type":"string","title":"Exception Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ToleranceResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/tools/history/{exception_id}":{"get":{"tags":["Tools"],"summary":"Tool 3 — Historical Approval Check","operationId":"history_tools_history__exception_id__get","parameters":[{"name":"exception_id","in":"path","required":true,"schema":{"type":"string","title":"Exception Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HistoryResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/tools/communications/{exception_id}":{"get":{"tags":["Tools"],"summary":"Tool 4 — Communications Confirmation","operationId":"communications_tools_communications__exception_id__get","parameters":[{"name":"exception_id","in":"path","required":true,"schema":{"type":"string","title":"Exception Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/CommsResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/tools/research/{exception_id}":{"post":{"tags":["Tools"],"summary":"Tool 5 — Web Research","operationId":"research_tools_research__exception_id__post","parameters":[{"name":"exception_id","in":"path","required":true,"schema":{"type":"string","title":"Exception Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ResearchResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/tools/resolve/{exception_id}":{"post":{"tags":["Tools"],"summary":"Tool 6 — Resolve / Escalate","operationId":"resolve_tools_resolve__exception_id__post","parameters":[{"name":"exception_id","in":"path","required":true,"schema":{"type":"string","title":"Exception Id"}}],"requestBody":{"content":{"application/json":{"schema":{"anyOf":[{"$ref":"#/components/schemas/ResolveRequest"},{"type":"null"}],"title":"Req"}}}},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ResolveResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/kb/search/emails":{"post":{"tags":["Knowledge Base"],"summary":"Tool 7 — Semantic Email Search","operationId":"search_emails_kb_search_emails_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/KBEmailSearchRequest"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/KBEmailSearchResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/kb/search/transcripts":{"post":{"tags":["Knowledge Base"],"summary":"Tool 8 — Semantic Transcript Search","operationId":"search_transcripts_kb_search_transcripts_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/KBTranscriptSearchRequest"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/KBTranscriptSearchResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/kb/history/{supplier_id}":{"get":{"tags":["Knowledge Base"],"summary":"Supplier Resolution History","operationId":"supplier_history_kb_history__supplier_id__get","parameters":[{"name":"supplier_id","in":"path","required":true,"schema":{"type":"string","title":"Supplier Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"type":"object","additionalProperties":true,"title":"Response Supplier History Kb History  Supplier Id  Get"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}}},"components":{"schemas":{"CommsResponse":{"properties":{"exception_id":{"type":"string","title":"Exception Id"},"auto_approved":{"type":"boolean","title":"Auto Approved"},"communications_checked":{"type":"integer","title":"Communications Checked"},"best_source_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Best Source Id"},"best_confidence":{"anyOf":[{"type":"number"},{"type":"null"}],"title":"Best Confidence"},"reasoning":{"type":"string","title":"Reasoning"},"message":{"type":"string","title":"Message"}},"type":"object","required":["exception_id","auto_approved","communications_checked","best_source_id","best_confidence","reasoning","message"],"title":"CommsResponse"},"HTTPValidationError":{"properties":{"detail":{"items":{"$ref":"#/components/schemas/ValidationError"},"type":"array","title":"Detail"}},"type":"object","title":"HTTPValidationError"},"HistoryResponse":{"properties":{"exception_id":{"type":"string","title":"Exception Id"},"auto_approved":{"type":"boolean","title":"Auto Approved"},"candidates_checked":{"type":"integer","title":"Candidates Checked"},"best_match_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Best Match Id"},"variance_gap_pct":{"anyOf":[{"type":"number"},{"type":"null"}],"title":"Variance Gap Pct"},"reasoning":{"type":"string","title":"Reasoning"},"message":{"type":"string","title":"Message"}},"type":"object","required":["exception_id","auto_approved","candidates_checked","best_match_id","variance_gap_pct","reasoning","message"],"title":"HistoryResponse"},"IntakeRequest":{"properties":{"invoice_number":{"type":"string","title":"Invoice Number","description":"Invoice number, e.g. 'INV-0001'"},"po_number":{"type":"string","title":"Po Number","description":"Purchase order number, e.g. 'PO-0001'"},"grn_number":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Grn Number","description":"Optional GRN number. Leave null to resolve by PO number from the dataset."}},"type":"object","required":["invoice_number","po_number"],"title":"IntakeRequest"},"IntakeResponse":{"properties":{"exception_id":{"type":"string","title":"Exception Id"},"exception_types":{"items":{"type":"string"},"type":"array","title":"Exception Types"},"total_variance_usd":{"type":"number","title":"Total Variance Usd"},"informal_modification_signals":{"items":{"type":"string"},"type":"array","title":"Informal Modification Signals"},"is_straight_through":{"type":"boolean","title":"Is Straight Through"},"message":{"type":"string","title":"Message"}},"type":"object","required":["exception_id","exception_types","total_variance_usd","informal_modification_signals","is_straight_through","message"],"title":"IntakeResponse"},"KBEmailSearchRequest":{"properties":{"query":{"type":"string","title":"Query"},"top_k":{"type":"integer","maximum":50.0,"minimum":1.0,"title":"Top K","default":10},"date_filter":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Date Filter"},"po_filter":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Po Filter"},"invoice_filter":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Invoice Filter"}},"type":"object","required":["query"],"title":"KBEmailSearchRequest"},"KBEmailSearchResponse":{"properties":{"query":{"type":"string","title":"Query"},"results":{"items":{"additionalProperties":true,"type":"object"},"type":"array","title":"Results"},"total":{"type":"integer","title":"Total"}},"type":"object","required":["query","results","total"],"title":"KBEmailSearchResponse"},"KBTranscriptSearchRequest":{"properties":{"query":{"type":"string","title":"Query"},"top_k":{"type":"integer","maximum":50.0,"minimum":1.0,"title":"Top K","default":10},"date_filter":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Date Filter"},"po_filter":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Po Filter"},"invoice_filter":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Invoice Filter"}},"type":"object","required":["query"],"title":"KBTranscriptSearchRequest"},"KBTranscriptSearchResponse":{"properties":{"query":{"type":"string","title":"Query"},"results":{"items":{"additionalProperties":true,"type":"object"},"type":"array","title":"Results"},"total":{"type":"integer","title":"Total"}},"type":"object","required":["query","results","total"],"title":"KBTranscriptSearchResponse"},"ResearchResponse":{"properties":{"exception_id":{"type":"string","title":"Exception Id"},"auto_approved":{"type":"boolean","title":"Auto Approved"},"queries_run":{"items":{"type":"string"},"type":"array","title":"Queries Run"},"findings_count":{"type":"integer","title":"Findings Count"},"supports_informal_modification":{"type":"boolean","title":"Supports Informal Modification"},"relevance_summary":{"type":"string","title":"Relevance Summary"},"message":{"type":"string","title":"Message"}},"type":"object","required":["exception_id","auto_approved","queries_run","findings_count","supports_informal_modification","relevance_summary","message"],"title":"ResearchResponse"},"ResolveRequest":{"properties":{"notes":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Notes"}},"type":"object","title":"ResolveRequest"},"ResolveResponse":{"properties":{"exception_id":{"type":"string","title":"Exception Id"},"final_state":{"type":"string","title":"Final State"},"action_taken":{"type":"string","title":"Action Taken"},"approved_by_step":{"type":"integer","title":"Approved By Step"},"message":{"type":"string","title":"Message"}},"type":"object","required":["exception_id","final_state","action_taken","approved_by_step","message"],"title":"ResolveResponse"},"ToleranceResponse":{"properties":{"exception_id":{"type":"string","title":"Exception Id"},"auto_approved":{"type":"boolean","title":"Auto Approved"},"variance_within_tolerance":{"type":"boolean","title":"Variance Within Tolerance"},"price_tolerance_pct":{"type":"number","title":"Price Tolerance Pct"},"reasoning":{"type":"string","title":"Reasoning"},"message":{"type":"string","title":"Message"}},"type":"object","required":["exception_id","auto_approved","variance_within_tolerance","price_tolerance_pct","reasoning","message"],"title":"ToleranceResponse"},"ValidationError":{"properties":{"loc":{"items":{"anyOf":[{"type":"string"},{"type":"integer"}]},"type":"array","title":"Location"},"msg":{"type":"string","title":"Message"},"type":{"type":"string","title":"Error Type"},"input":{"title":"Input"},"ctx":{"type":"object","title":"Context"}},"type":"object","required":["loc","msg","type"],"title":"ValidationError"}}}}
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Invoice Exception Resolution \u2014 Dashboard & KB API",
+    "description": "RESTful API for the autonomous LangGraph agent: dashboard search, human approval, knowledge-base search, and analytics. The six-gate decision pipeline runs asynchronously via Celery.",
+    "version": "4.0.0"
+  },
+  "paths": {
+    "/auth/token": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Login For Access Token",
+        "description": "OAuth2 login endpoint.\n\nIssues access_token (short-lived, 30min) and refresh_token (long-lived, 7 days).\n\nArgs:\n    form_data: OAuth2 password flow request (username + password)\n\nReturns:\n    Token with access and refresh tokens\n\nRaises:\n    HTTPException: if credentials are invalid",
+        "operationId": "login_for_access_token_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_login_for_access_token_auth_token_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Refresh Access Token",
+        "description": "Refresh an access token using a refresh token.\n\nArgs:\n    refresh_token: Valid refresh token\n\nReturns:\n    New access and refresh tokens\n\nRaises:\n    HTTPException: if refresh token is invalid",
+        "operationId": "refresh_access_token_auth_refresh_post",
+        "parameters": [
+          {
+            "name": "refresh_token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Refresh Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Read Users Me",
+        "description": "Get the current authenticated user.\n\nArgs:\n    current_user: Current user from JWT token\n\nReturns:\n    User information",
+        "operationId": "read_users_me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/tools/approve/{exception_id}": {
+      "post": {
+        "tags": [
+          "Human Approval"
+        ],
+        "summary": "Manually Approve Escalated Exception",
+        "operationId": "approve_tools_approve__exception_id__post",
+        "parameters": [
+          {
+            "name": "exception_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exception Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/reject/{exception_id}": {
+      "post": {
+        "tags": [
+          "Human Approval"
+        ],
+        "summary": "Manually Reject Escalated Exception",
+        "operationId": "reject_tools_reject__exception_id__post",
+        "parameters": [
+          {
+            "name": "exception_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exception Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/exceptions/list": {
+      "post": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "List Exceptions with Search/Filter",
+        "operationId": "list_exceptions_exceptions_list_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExceptionListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExceptionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kb/search/emails": {
+      "post": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "Semantic Email Search",
+        "operationId": "search_emails_kb_search_emails_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KBEmailSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KBEmailSearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kb/search/transcripts": {
+      "post": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "Semantic Transcript Search",
+        "operationId": "search_transcripts_kb_search_transcripts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KBTranscriptSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KBTranscriptSearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kb/history/{supplier_id}": {
+      "get": {
+        "tags": [
+          "Knowledge Base"
+        ],
+        "summary": "Supplier Resolution History",
+        "operationId": "supplier_history_kb_history__supplier_id__get",
+        "parameters": [
+          {
+            "name": "supplier_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Supplier Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Supplier History Kb History  Supplier Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analytics/summary": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Get KPI Dashboard Summary",
+        "operationId": "get_analytics_summary_analytics_summary_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsSummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/documents/parse": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "summary": "Parse a PDF document via OCR + LLM",
+        "description": "Upload a PDF (invoice, PO, or GRN) and receive the parsed Pydantic model. OCR uses Tesseract; structured extraction uses the configured OpenAI-compatible LLM. The endpoint does NOT auto-create an exception \u2014 review the parsed model, then call /webhook/invoice, /webhook/po, or /webhook/grn to enqueue it.",
+        "operationId": "parse_document_documents_parse_post",
+        "parameters": [
+          {
+            "name": "doc_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Doc Type"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_parse_document_documents_parse_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentParseResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalyticsSummaryResponse": {
+        "properties": {
+          "kpis": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Kpis"
+          },
+          "supplier_scorecard": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Supplier Scorecard"
+          },
+          "trends": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Trends"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kpis",
+          "supplier_scorecard",
+          "trends",
+          "timestamp"
+        ],
+        "title": "AnalyticsSummaryResponse"
+      },
+      "ApprovalRequest": {
+        "properties": {
+          "approved_by": {
+            "type": "string",
+            "title": "Approved By",
+            "description": "User ID or email of approver"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "Optional approval notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approved_by"
+        ],
+        "title": "ApprovalRequest"
+      },
+      "ApprovalResponse": {
+        "properties": {
+          "exception_id": {
+            "type": "string",
+            "title": "Exception Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exception_id",
+          "status",
+          "message"
+        ],
+        "title": "ApprovalResponse"
+      },
+      "Body_login_for_access_token_auth_token_post": {
+        "properties": {
+          "grant_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^password$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Type"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "title": "Password"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "password",
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Body_login_for_access_token_auth_token_post"
+      },
+      "Body_parse_document_documents_parse_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_parse_document_documents_parse_post"
+      },
+      "DocumentParseResponse": {
+        "properties": {
+          "doc_type": {
+            "type": "string",
+            "title": "Doc Type"
+          },
+          "text_chars": {
+            "type": "integer",
+            "title": "Text Chars"
+          },
+          "model": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_type",
+          "text_chars",
+          "model"
+        ],
+        "title": "DocumentParseResponse"
+      },
+      "ExceptionListRequest": {
+        "properties": {
+          "supplier_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Id"
+          },
+          "supplier_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Name"
+          },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Number"
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Number"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "variance_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variance Min"
+          },
+          "variance_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variance Max"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "ExceptionListRequest"
+      },
+      "ExceptionListResponse": {
+        "properties": {
+          "exceptions": {
+            "items": {
+              "$ref": "#/components/schemas/ExceptionSummary"
+            },
+            "type": "array",
+            "title": "Exceptions"
+          },
+          "total_count": {
+            "type": "integer",
+            "title": "Total Count"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exceptions",
+          "total_count",
+          "limit",
+          "offset"
+        ],
+        "title": "ExceptionListResponse"
+      },
+      "ExceptionSummary": {
+        "properties": {
+          "exception_id": {
+            "type": "string",
+            "title": "Exception Id"
+          },
+          "invoice_number": {
+            "type": "string",
+            "title": "Invoice Number"
+          },
+          "po_number": {
+            "type": "string",
+            "title": "Po Number"
+          },
+          "supplier_name": {
+            "type": "string",
+            "title": "Supplier Name"
+          },
+          "supplier_id": {
+            "type": "string",
+            "title": "Supplier Id"
+          },
+          "exception_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exception Types"
+          },
+          "total_variance_usd": {
+            "type": "number",
+            "title": "Total Variance Usd"
+          },
+          "variance_percentage": {
+            "type": "number",
+            "title": "Variance Percentage"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "rejected_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exception_id",
+          "invoice_number",
+          "po_number",
+          "supplier_name",
+          "supplier_id",
+          "exception_types",
+          "total_variance_usd",
+          "variance_percentage",
+          "state",
+          "created_at"
+        ],
+        "title": "ExceptionSummary"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KBEmailSearchRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 10
+          },
+          "date_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Filter"
+          },
+          "po_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Filter"
+          },
+          "invoice_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Filter"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "KBEmailSearchRequest"
+      },
+      "KBEmailSearchResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "results",
+          "total"
+        ],
+        "title": "KBEmailSearchResponse"
+      },
+      "KBTranscriptSearchRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 10
+          },
+          "date_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Filter"
+          },
+          "po_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Filter"
+          },
+          "invoice_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Filter"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "KBTranscriptSearchRequest"
+      },
+      "KBTranscriptSearchResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "results",
+          "total"
+        ],
+        "title": "KBTranscriptSearchResponse"
+      },
+      "RejectionRequest": {
+        "properties": {
+          "rejected_by": {
+            "type": "string",
+            "title": "Rejected By",
+            "description": "User ID or email of reviewer"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Reason for rejection"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rejected_by",
+          "reason"
+        ],
+        "title": "RejectionRequest"
+      },
+      "RejectionResponse": {
+        "properties": {
+          "exception_id": {
+            "type": "string",
+            "title": "Exception Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exception_id",
+          "status",
+          "message"
+        ],
+        "title": "RejectionResponse"
+      },
+      "Token": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token"
+        ],
+        "title": "Token",
+        "description": "OAuth2 token response."
+      },
+      "User": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "disabled": {
+            "type": "boolean",
+            "title": "Disabled",
+            "default": false
+          },
+          "org_id": {
+            "type": "string",
+            "title": "Org Id",
+            "default": "default"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "ap_clerk"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username"
+        ],
+        "title": "User",
+        "description": "User in the system."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "OAuth2PasswordBearer": {
+        "type": "oauth2",
+        "flows": {
+          "password": {
+            "scopes": {},
+            "tokenUrl": "auth/token"
+          }
+        }
+      }
+    }
+  }
+}

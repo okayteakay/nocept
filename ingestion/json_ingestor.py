@@ -75,8 +75,9 @@ class DatasetBundle:
     ) -> list[tuple[Invoice, PurchaseOrder, GoodsReceiptNote | None, ExceptionRecord]]:
         """Return all (Invoice, PO, GR, ExceptionRecord) tuples for actual exceptions.
 
-        Used to feed the agent pipeline with pre-labeled exception data.
-        GR is None for MISSING_GOODS_RECEIPT exceptions.
+        Used by run_demo.py and the dashboard Demo Trigger to feed the
+        LangGraph agent with pre-labeled exception data. GR is None for
+        MISSING_GOODS_RECEIPT exceptions.
         """
         result = []
         for rec in self.exception_records.values():

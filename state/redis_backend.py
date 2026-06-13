@@ -8,7 +8,7 @@ import redis
 from models.exception import ExceptionState, InvoiceException
 from models.exception_record import ExceptionType
 from models.resolution import Resolution
-from state.machine import ExceptionStateMachine, InvalidTransitionError  # noqa: F401
+from state.machine import VALID_TRANSITIONS, InvalidTransitionError
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +125,8 @@ class RedisStateStore:
             InvalidTransitionError: If the transition is not permitted.
         """
         exc = self.load(exception_id)
-        sm = ExceptionStateMachine(exc.state)
-        sm.transition(to)  # raises InvalidTransitionError on invalid move
+        if to not in VALID_TRANSITIONS.get(exc.state, set()):
+            raise InvalidTransitionError(exc.state, to)
 
         exc.state = to
         exc.mark_updated()

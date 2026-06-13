@@ -188,7 +188,7 @@ def gate_research(
         root_cause=RootCause.UNDOCUMENTED_MODIFICATION,
         confidence=0.80,
         reasoning=(
-            f"Web research corroborates this exception: {research.relevance_summary} "
+            f"Web research corroborates this exception "
             f"({len(research.supporting_evidence)} supporting source(s), "
             f"avg confidence {avg_conf:.2f})."
         ),

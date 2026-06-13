@@ -1,16 +1,30 @@
-"""
-orchestrate/api.py
+"""orchestrate/api.py
 
-FastAPI application exposing the six watsonx Orchestrate tools as REST endpoints.
+FastAPI application exposing the dashboard, knowledge-base, analytics, and
+human-approval endpoints for the autonomous invoice exception resolution agent.
 
-Six-step approval flow
-----------------------
-Tool 1  /tools/intake               Detect exception; classify type + variance
-Tool 2  /tools/tolerance/{id}       Auto-approve if invoice-vs-PO variance <= 1%
-Tool 3  /tools/history/{id}         Auto-approve if similar historical case found
-Tool 4  /tools/communications/{id}  Auto-approve if email/transcript confirms it
-Tool 5  /tools/research/{id}        Auto-approve if web search corroborates it
-Tool 6  /tools/resolve/{id}         Finalize: RESOLVED or ESCALATED
+The six-step pipeline itself runs in-process as a LangGraph state machine in
+agent/langgraph_agent.py and is triggered asynchronously by worker/tasks.py
+after an SAP webhook lands. The remaining `/tools/*` endpoints are the
+human approval actions used by the dashboard.
+
+Endpoints
+---------
+Auth
+    POST /auth/token             issue JWT
+    POST /auth/refresh           refresh JWT
+    GET  /auth/me                current user
+Dashboard / search
+    POST /exceptions/list        search & filter the exception queue
+Human approval
+    POST /tools/approve/{id}     manually approve an escalated exception
+    POST /tools/reject/{id}      manually reject an escalated exception
+Knowledge base
+    POST /kb/search/emails       semantic search over emails
+    POST /kb/search/transcripts  semantic search over transcripts
+    GET  /kb/history/{id}        supplier resolution history summary
+Analytics
+    GET  /analytics/summary      KPIs, supplier scorecard, trends
 """
 from __future__ import annotations
 
@@ -21,24 +35,11 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 import redis as redis_lib
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from agent.classifier import classify_exception
-from agent.comms_checker import check_communications
-from agent.context_retriever import retrieve_supplier_context
-from agent.history_checker import check_historical_approval
-from agent.researcher import ResearchResult, research_exception
-from agent.rules_engine import (
-    RulesDecision,
-    gate_communications,
-    gate_duplicate,
-    gate_escalate,
-    gate_history,
-    gate_research,
-    gate_tolerance,
-)
 from audit.audit_logger import AuditEvent, AuditLogger
+from auth.jwt_auth import router as auth_router
 from clients.redis_client import RedisStreamsClient, get_redis_connection
 from clients.tavily_client import TavilyClient
 from config.settings import AppConfig, get_settings
@@ -46,23 +47,18 @@ from ingestion.json_ingestor import DatasetBundle, load_dataset
 from knowledge.client import KnowledgeBaseClient
 from knowledge.seeder import seed_knowledge_base
 from models.exception import ExceptionState, InvoiceException
-from models.resolution import EvidenceItem, Resolution, ResolutionAction, ResolutionMemo, RootCause
 from state.machine import VALID_TRANSITIONS
 from state.redis_backend import RedisStateStore
 
 logger = logging.getLogger(__name__)
 
-_EXC_PFX = "exc:"
-_DEC_PFX = "decision:"
-_RES_PFX = "research:"
-_MEMO_PFX = "memo:"
-_TTL = 3600
-
-_res: dict = {}
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Initialize per-app state. Resources live on app.state, not in a module-global dict,
+    so they survive multi-worker deployments and remain accessible to FastAPI dependencies
+    via request.app.state.
+    """
     cfg = get_settings()
     cfg.configure_logging()
     r = get_redis_connection(cfg.redis_url)
@@ -78,565 +74,71 @@ async def lifespan(app: FastAPI):
         seed_counts["transcripts"],
     )
 
-    _res.update(
-        {
-            "cfg": cfg,
-            "r": r,
-            "store": RedisStateStore(r),
-            "tavily": TavilyClient(cfg.tavily_api_key),
-            "audit": AuditLogger(streams),
-            "dataset": dataset,
-            "kb": kb,
-        }
-    )
+    app.state.cfg = cfg
+    app.state.r = r
+    app.state.store = RedisStateStore(r)
+    app.state.tavily = TavilyClient(cfg.tavily_api_key)
+    app.state.audit = AuditLogger(streams)
+    app.state.dataset = dataset
+    app.state.kb = kb
+
     logger.info(
         "Tavily API key loaded: %s",
         f"{cfg.tavily_api_key[:12]}..." if cfg.tavily_api_key else "NOT SET",
     )
     logger.info("Orchestrate API ready — dataset loaded, Redis connected, KB seeded.")
     yield
-    _res.clear()
+    # app.state is cleaned up automatically by FastAPI on shutdown
 
 
 app = FastAPI(
-    title="Invoice Exception Resolution — Autonomous Agent API",
+    title="Invoice Exception Resolution — Dashboard & KB API",
     description=(
-        "RESTful API for invoice exception resolution using autonomous LangGraph agents. "
-        "Integrates with SAP S/4HANA webhooks, runs resolution pipeline asynchronously via Celery, "
-        "and exposes both tool-level and dashboard-level endpoints."
+        "RESTful API for the autonomous LangGraph agent: dashboard search, "
+        "human approval, knowledge-base search, and analytics. The six-gate "
+        "decision pipeline runs asynchronously via Celery."
     ),
-    version="3.0.0",
+    version="4.0.0",
     lifespan=lifespan,
 )
 
-# Include authentication router
-from auth.jwt_auth import router as auth_router
 app.include_router(auth_router)
 
 
-def _get_store() -> RedisStateStore:
-    return _res["store"]
+# ---------------------------------------------------------------------------
+# Dependencies — read from app.state (per-app, request-safe, multi-worker-safe)
+# ---------------------------------------------------------------------------
 
+def get_store(request: Request) -> RedisStateStore:
+    return request.app.state.store
 
-def _get_r() -> redis_lib.Redis:
-    return _res["r"]
 
+def get_redis(request: Request) -> redis_lib.Redis:
+    return request.app.state.r
 
-def _get_tavily() -> TavilyClient:
-    return _res["tavily"]
 
+def get_cfg(request: Request) -> AppConfig:
+    return request.app.state.cfg
 
-def _get_audit() -> AuditLogger:
-    return _res["audit"]
 
+def get_kb(request: Request) -> KnowledgeBaseClient:
+    return request.app.state.kb
 
-def _get_cfg() -> AppConfig:
-    return _res["cfg"]
 
+def get_audit(request: Request) -> AuditLogger:
+    return request.app.state.audit
 
-def _get_dataset() -> DatasetBundle:
-    return _res["dataset"]
 
+Store = Annotated[RedisStateStore, Depends(get_store)]
+R = Annotated[redis_lib.Redis, Depends(get_redis)]
+Cfg = Annotated[AppConfig, Depends(get_cfg)]
+KB = Annotated[KnowledgeBaseClient, Depends(get_kb)]
+Audit = Annotated[AuditLogger, Depends(get_audit)]
 
-def _get_kb() -> KnowledgeBaseClient:
-    return _res["kb"]
 
-
-Store = Annotated[RedisStateStore, Depends(_get_store)]
-R = Annotated[redis_lib.Redis, Depends(_get_r)]
-Tavily = Annotated[TavilyClient, Depends(_get_tavily)]
-Audit = Annotated[AuditLogger, Depends(_get_audit)]
-Cfg = Annotated[AppConfig, Depends(_get_cfg)]
-DS = Annotated[DatasetBundle, Depends(_get_dataset)]
-KB = Annotated[KnowledgeBaseClient, Depends(_get_kb)]
-
-
-def _rset(r: redis_lib.Redis, prefix: str, eid: str, data: str) -> None:
-    r.set(f"{prefix}{eid}", data, ex=_TTL)
-
-
-def _load_exc(r: redis_lib.Redis, eid: str, store: RedisStateStore | None = None) -> InvoiceException:
-    # Prefer the store's copy — it is updated on every state transition.
-    # Fall back to the raw exc: cache only if the store copy is unavailable.
-    if store is not None:
-        try:
-            return store.load(eid)
-        except KeyError:
-            pass
-    raw = r.get(f"{_EXC_PFX}{eid}")
-    if raw is None:
-        raise HTTPException(404, f"Exception '{eid}' not found. Call Tool 1 first.")
-    payload = raw if isinstance(raw, str) else raw.decode()
-    return InvoiceException.model_validate_json(payload)
-
-
-class IntakeRequest(BaseModel):
-    invoice_number: str = Field(description="Invoice number, e.g. 'INV-0001'")
-    po_number: str = Field(description="Purchase order number, e.g. 'PO-0001'")
-    grn_number: str | None = Field(
-        default=None,
-        description="Optional GRN number. Leave null to resolve by PO number from the dataset.",
-    )
-
-
-class IntakeResponse(BaseModel):
-    exception_id: str
-    exception_types: list[str]
-    total_variance_usd: float
-    informal_modification_signals: list[str]
-    is_straight_through: bool
-    message: str
-
-
-class ToleranceResponse(BaseModel):
-    exception_id: str
-    auto_approved: bool
-    variance_within_tolerance: bool
-    price_tolerance_pct: float
-    reasoning: str
-    message: str
-
-
-class HistoryResponse(BaseModel):
-    exception_id: str
-    auto_approved: bool
-    candidates_checked: int
-    best_match_id: str | None
-    variance_gap_pct: float | None
-    reasoning: str
-    message: str
-
-
-class CommsResponse(BaseModel):
-    exception_id: str
-    auto_approved: bool
-    communications_checked: int
-    best_source_id: str | None
-    best_confidence: float | None
-    reasoning: str
-    message: str
-
-
-class ResearchResponse(BaseModel):
-    exception_id: str
-    auto_approved: bool
-    queries_run: list[str]
-    findings_count: int
-    supports_informal_modification: bool
-    relevance_summary: str
-    message: str
-
-
-class ResolveRequest(BaseModel):
-    notes: str | None = Field(default=None)
-
-
-class ResolveResponse(BaseModel):
-    exception_id: str
-    final_state: str
-    action_taken: str
-    approved_by_step: int
-    message: str
-
-
-@app.post(
-    "/tools/intake",
-    response_model=IntakeResponse,
-    tags=["Tools"],
-    summary="Tool 1 — Exception Intake",
-)
-async def intake(
-    req: IntakeRequest,
-    store: Store,
-    r: R,
-    cfg: Cfg,
-    audit: Audit,
-    dataset: DS,
-) -> IntakeResponse:
-    invoice = dataset.invoices.get(req.invoice_number)
-    if invoice is None:
-        raise HTTPException(404, f"Invoice '{req.invoice_number}' not found.")
-
-    po = dataset.purchase_orders.get(req.po_number)
-    if po is None:
-        raise HTTPException(404, f"PO '{req.po_number}' not found.")
-
-    grn = dataset.goods_receipts.get(req.po_number)
-
-    exc = InvoiceException(
-        invoice=invoice,
-        purchase_order=po,
-        grn=grn,
-        state=ExceptionState.RECEIVED,
-    )
-
-    exc_record = dataset.exception_for_invoice(req.invoice_number)
-    if exc_record is not None:
-        exc.exception_record = exc_record
-        exc.related_emails = dataset.emails_for_exception(exc_record)
-        exc.related_transcripts = dataset.transcripts_for_exception(exc_record)
-
-    classification = classify_exception(invoice, po, grn, cfg, store=store)
-    exc.exception_types = classification.exception_types
-    exc.line_variances = classification.line_variances
-    exc.total_variance_usd = classification.total_variance_usd
-
-    store.save(exc)
-    _rset(r, _EXC_PFX, exc.exception_id, exc.model_dump_json())
-
-    audit.log(
-        AuditEvent(
-            exception_id=exc.exception_id,
-            event_type="classification",
-            details={
-                "types": [t.value for t in classification.exception_types],
-                "variance_usd": classification.total_variance_usd,
-                "invoice": req.invoice_number,
-                "po": req.po_number,
-                "linked_emails": len(exc.related_emails),
-                "linked_transcripts": len(exc.related_transcripts),
-            },
-        )
-    )
-
-    is_clean = not bool(classification.exception_types)
-    return IntakeResponse(
-        exception_id=exc.exception_id,
-        exception_types=[t.value for t in classification.exception_types],
-        total_variance_usd=classification.total_variance_usd,
-        informal_modification_signals=classification.informal_modification_signals,
-        is_straight_through=is_clean,
-        message=(
-            "No exceptions detected — straight-through invoice. Call Tool 6 to resolve."
-            if is_clean
-            else "Exception detected. Call Tool 2 (tolerance) next."
-        ),
-    )
-
-
-@app.get(
-    "/tools/tolerance/{exception_id}",
-    response_model=ToleranceResponse,
-    tags=["Tools"],
-    summary="Tool 2 — Tolerance Check",
-)
-async def tolerance(
-    exception_id: str,
-    r: R,
-    store: Store,
-    cfg: Cfg,
-    audit: Audit,
-) -> ToleranceResponse:
-    exc = _load_exc(r, exception_id, store)
-
-    if exc.state == ExceptionState.RECEIVED:
-        store.transition(exception_id, ExceptionState.TRIAGED)
-        audit.log_transition(exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
-        exc = _load_exc(r, exception_id, store)
-
-    dup_decision = gate_duplicate(exc)
-    if dup_decision:
-        _rset(r, _DEC_PFX, exception_id, dup_decision.model_dump_json())
-        audit.log(
-            AuditEvent(
-                exception_id=exception_id,
-                event_type="gate_fired",
-                details={"gate": "duplicate", "action": dup_decision.action.value},
-            )
-        )
-        return ToleranceResponse(
-            exception_id=exception_id,
-            auto_approved=True,
-            variance_within_tolerance=False,
-            price_tolerance_pct=cfg.price_tolerance_pct,
-            reasoning=dup_decision.reasoning,
-            message="Duplicate invoice detected. Call Tool 6 to reject.",
-        )
-
-    decision = gate_tolerance(exc, cfg)
-    if decision:
-        _rset(r, _DEC_PFX, exception_id, decision.model_dump_json())
-        audit.log(
-            AuditEvent(
-                exception_id=exception_id,
-                event_type="gate_fired",
-                details={"gate": "tolerance", "action": decision.action.value},
-            )
-        )
-
-    return ToleranceResponse(
-        exception_id=exception_id,
-        auto_approved=decision is not None,
-        variance_within_tolerance=decision is not None,
-        price_tolerance_pct=cfg.price_tolerance_pct,
-        reasoning=(
-            decision.reasoning
-            if decision
-            else (
-                f"Absolute invoice-to-PO variance exceeds the configured "
-                f"{cfg.price_tolerance_pct:.0%} tolerance. Proceed to historical check."
-            )
-        ),
-        message=(
-            "Variance within tolerance — auto-approved. Call Tool 6 to resolve."
-            if decision
-            else "Variance exceeds tolerance. Call Tool 3 (history) next."
-        ),
-    )
-
-
-@app.get(
-    "/tools/history/{exception_id}",
-    response_model=HistoryResponse,
-    tags=["Tools"],
-    summary="Tool 3 — Historical Approval Check",
-)
-async def history(
-    exception_id: str,
-    r: R,
-    store: Store,
-    audit: Audit,
-) -> HistoryResponse:
-    exc = _load_exc(r, exception_id, store)
-
-    if exc.state == ExceptionState.RECEIVED:
-        store.transition(exception_id, ExceptionState.TRIAGED)
-        audit.log_transition(exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
-
-    result = check_historical_approval(exc)
-    if result.auto_approve:
-        decision, _ = gate_history(exc)
-        if decision:
-            _rset(r, _DEC_PFX, exception_id, decision.model_dump_json())
-            audit.log(
-                AuditEvent(
-                    exception_id=exception_id,
-                    event_type="gate_fired",
-                    details={
-                        "gate": "history",
-                        "match": result.best_match.exception_id if result.best_match else None,
-                    },
-                )
-            )
-
-    best = result.best_match
-    return HistoryResponse(
-        exception_id=exception_id,
-        auto_approved=result.auto_approve,
-        candidates_checked=result.candidates_checked,
-        best_match_id=best.exception_id if best else None,
-        variance_gap_pct=best.variance_diff if best else None,
-        reasoning=result.reasoning,
-        message=(
-            "Similar historical approved case found — auto-approved. Call Tool 6 to resolve."
-            if result.auto_approve
-            else "No sufficient historical match found. Call Tool 4 (communications) next."
-        ),
-    )
-
-
-@app.get(
-    "/tools/communications/{exception_id}",
-    response_model=CommsResponse,
-    tags=["Tools"],
-    summary="Tool 4 — Communications Confirmation",
-)
-async def communications(
-    exception_id: str,
-    r: R,
-    store: Store,
-    audit: Audit,
-) -> CommsResponse:
-    exc = _load_exc(r, exception_id, store)
-
-    result = check_communications(exc)
-    if result.auto_approve:
-        decision, _ = gate_communications(exc)
-        if decision:
-            _rset(r, _DEC_PFX, exception_id, decision.model_dump_json())
-            audit.log(
-                AuditEvent(
-                    exception_id=exception_id,
-                    event_type="gate_fired",
-                    details={
-                        "gate": "communications",
-                        "source": (
-                            result.best_confirmation.source_id
-                            if result.best_confirmation
-                            else None
-                        ),
-                    },
-                )
-            )
-
-    best = result.best_confirmation
-    return CommsResponse(
-        exception_id=exception_id,
-        auto_approved=result.auto_approve,
-        communications_checked=result.total_checked,
-        best_source_id=best.source_id if best else None,
-        best_confidence=best.confidence if best else None,
-        reasoning=result.reasoning,
-        message=(
-            "Communications directly confirm this exception — auto-approved. Call Tool 6 to resolve."
-            if result.auto_approve
-            else "Communications do not sufficiently confirm the exception. Call Tool 5 (research) next."
-        ),
-    )
-
-
-@app.post(
-    "/tools/research/{exception_id}",
-    response_model=ResearchResponse,
-    tags=["Tools"],
-    summary="Tool 5 — Web Research",
-)
-async def research(
-    exception_id: str,
-    r: R,
-    store: Store,
-    tavily: Tavily,
-    audit: Audit,
-) -> ResearchResponse:
-    exc = _load_exc(r, exception_id, store)
-
-    if exc.state == ExceptionState.TRIAGED:
-        store.transition(exception_id, ExceptionState.RESEARCHING)
-        audit.log_transition(exception_id, ExceptionState.TRIAGED, ExceptionState.RESEARCHING)
-    elif exc.state == ExceptionState.RECEIVED:
-        store.transition(exception_id, ExceptionState.TRIAGED)
-        audit.log_transition(exception_id, ExceptionState.RECEIVED, ExceptionState.TRIAGED)
-        store.transition(exception_id, ExceptionState.RESEARCHING)
-        audit.log_transition(exception_id, ExceptionState.TRIAGED, ExceptionState.RESEARCHING)
-
-    context = retrieve_supplier_context(exc.invoice.supplier_id, store)
-    result = research_exception(exc, context, tavily)
-    _rset(r, _RES_PFX, exception_id, result.model_dump_json())
-
-    decision = gate_research(exc, result)
-    if decision:
-        _rset(r, _DEC_PFX, exception_id, decision.model_dump_json())
-        audit.log(
-            AuditEvent(
-                exception_id=exception_id,
-                event_type="gate_fired",
-                details={"gate": "research", "findings": len(result.findings)},
-            )
-        )
-    else:
-        existing = r.get(f"{_DEC_PFX}{exception_id}")
-        if existing is None:
-            _rset(r, _DEC_PFX, exception_id, gate_escalate().model_dump_json())
-
-    audit.log(
-        AuditEvent(
-            exception_id=exception_id,
-            event_type="research_complete",
-            details={
-                "queries": result.queries_run,
-                "findings": len(result.findings),
-                "corroborates": result.supports_informal_modification,
-            },
-        )
-    )
-
-    return ResearchResponse(
-        exception_id=exception_id,
-        auto_approved=decision is not None,
-        queries_run=result.queries_run,
-        findings_count=len(result.findings),
-        supports_informal_modification=result.supports_informal_modification,
-        relevance_summary=result.relevance_summary,
-        message=(
-            "Web research corroborates this exception — auto-approved. Call Tool 6 to resolve."
-            if decision
-            else "No strong external corroboration found. Call Tool 6 to escalate to human review."
-        ),
-    )
-
-
-@app.post(
-    "/tools/resolve/{exception_id}",
-    response_model=ResolveResponse,
-    tags=["Tools"],
-    summary="Tool 6 — Resolve / Escalate",
-)
-async def resolve(
-    exception_id: str,
-    store: Store,
-    r: R,
-    audit: Audit,
-    kb: KB,
-    req: ResolveRequest | None = None,
-) -> ResolveResponse:
-    exc = _load_exc(r, exception_id, store)
-
-    dec_raw = r.get(f"{_DEC_PFX}{exception_id}")
-    if dec_raw is None:
-        decision = _straight_through_decision()
-    else:
-        dec_str = dec_raw if isinstance(dec_raw, str) else dec_raw.decode()
-        decision = RulesDecision.model_validate_json(dec_str)
-
-    final_state = (
-        ExceptionState.RESOLVED if decision.auto_resolvable else ExceptionState.ESCALATED
-    )
-
-    evidence: list[EvidenceItem] = []
-    res_raw = r.get(f"{_RES_PFX}{exception_id}")
-    research_result: ResearchResult | None = None
-    if res_raw is not None:
-        res_str = res_raw if isinstance(res_raw, str) else res_raw.decode()
-        research_result = ResearchResult.model_validate_json(res_str)
-        evidence.extend(research_result.supporting_evidence)
-
-    resolution_memo = ResolutionMemo(
-        exception_id=exception_id,
-        root_cause=decision.root_cause,
-        action=decision.action,
-        confidence=decision.confidence,
-        summary=_build_summary(exc, decision),
-        evidence=evidence,
-    )
-    _rset(r, _MEMO_PFX, exception_id, resolution_memo.model_dump_json())
-
-    _walk_to_final(store, audit, exception_id, exc.state, final_state)
-
-    resolution = Resolution(
-        exception_id=exception_id,
-        memo=resolution_memo,
-        final_state=final_state,
-    )
-    store.save_resolution(resolution)
-    audit.log_resolution(resolution)
-
-    notes = req.notes if req else None
-    if notes:
-        audit.log(
-            AuditEvent(
-                exception_id=exception_id,
-                event_type="human_note",
-                actor="human",
-                details={"notes": notes},
-            )
-        )
-
-    exc_final = store.load(exception_id)
-    kb.ingest_resolved_case(exc_final, resolution)
-
-    return ResolveResponse(
-        exception_id=exception_id,
-        final_state=final_state.value,
-        action_taken=decision.action.value,
-        approved_by_step=decision.approved_by_step,
-        message=(
-            f"Exception {exception_id} {final_state.value.lower()}. "
-            f"Action: {decision.action.value}. "
-            f"Approved by step: {decision.approved_by_step}."
-            + (f" Note: {notes}" if notes else "")
-        ),
-    )
-
+# ---------------------------------------------------------------------------
+# Human approval
+# ---------------------------------------------------------------------------
 
 class ApprovalRequest(BaseModel):
     approved_by: str = Field(description="User ID or email of approver")
@@ -673,7 +175,7 @@ async def approve(
     r: R,
     audit: Audit,
 ) -> ApprovalResponse:
-    exc = _load_exc(r, exception_id, store)
+    exc = store.load(exception_id)
 
     if exc.state not in (ExceptionState.ESCALATED, ExceptionState.PENDING_APPROVAL):
         raise HTTPException(
@@ -687,8 +189,8 @@ async def approve(
     exc.approval_timestamp = datetime.now(timezone.utc)
 
     _walk_to_final(store, audit, exception_id, exc.state, ExceptionState.APPROVED)
+    exc.state = ExceptionState.APPROVED
     store.save(exc)
-    _rset(r, _EXC_PFX, exception_id, exc.model_dump_json())
 
     audit.log(
         AuditEvent(
@@ -723,7 +225,7 @@ async def reject(
     r: R,
     audit: Audit,
 ) -> RejectionResponse:
-    exc = _load_exc(r, exception_id, store)
+    exc = store.load(exception_id)
 
     if exc.state not in (ExceptionState.ESCALATED, ExceptionState.PENDING_APPROVAL):
         raise HTTPException(
@@ -737,8 +239,8 @@ async def reject(
     exc.rejection_timestamp = datetime.now(timezone.utc)
 
     _walk_to_final(store, audit, exception_id, exc.state, ExceptionState.REJECTED)
+    exc.state = ExceptionState.REJECTED
     store.save(exc)
-    _rset(r, _EXC_PFX, exception_id, exc.model_dump_json())
 
     audit.log(
         AuditEvent(
@@ -760,29 +262,6 @@ async def reject(
     )
 
 
-def _straight_through_decision() -> RulesDecision:
-    return RulesDecision(
-        action=ResolutionAction.AUTO_APPROVE,
-        root_cause=RootCause.POLICY_COMPLIANT_VARIANCE,
-        confidence=1.0,
-        reasoning="Straight-through invoice — three-way match passed with no variances.",
-        auto_resolvable=True,
-        approved_by_step=1,
-    )
-
-
-def _build_summary(exc: InvoiceException, decision: RulesDecision) -> str:
-    types_str = ", ".join(t.value for t in exc.exception_types) or "none"
-    return (
-        f"Invoice {exc.invoice.invoice_number} vs PO {exc.purchase_order.po_number} "
-        f"(Supplier: {exc.supplier_name}). "
-        f"Exception type(s): {types_str}. "
-        f"Variance: ${exc.total_variance_usd:,.2f}. "
-        f"Decision: {decision.action.value} (confidence {decision.confidence:.0%}). "
-        f"{decision.reasoning}"
-    )
-
-
 def _walk_to_final(
     store: RedisStateStore,
     audit: AuditLogger,
@@ -794,8 +273,13 @@ def _walk_to_final(
 
     Uses the VALID_TRANSITIONS graph to compute a direct path rather than
     hard-coding intermediate states, so it never attempts an illegal jump.
+    Short-circuits only for actual terminal states (APPROVED, REJECTED, RESOLVED).
     """
-    if current == target or current in (ExceptionState.RESOLVED, ExceptionState.ESCALATED):
+    if current == target or current in (
+        ExceptionState.APPROVED,
+        ExceptionState.REJECTED,
+        ExceptionState.RESOLVED,
+    ):
         return
 
     # BFS to find the shortest valid path from current → target
@@ -820,6 +304,10 @@ def _walk_to_final(
         audit.log_transition(eid, prev, next_state)
         prev = next_state
 
+
+# ---------------------------------------------------------------------------
+# Dashboard / search / filter
+# ---------------------------------------------------------------------------
 
 class ExceptionSummary(BaseModel):
     exception_id: str
@@ -866,18 +354,15 @@ async def list_exceptions(
     store: Store,
     r: R,
 ) -> ExceptionListResponse:
-    # Get all exception IDs from store
     all_ids: set[str] = set(store.list_queue_ids())
     for state in ExceptionState:
         all_ids.update(store.list_by_state(state))
 
-    # Load and filter exceptions
     filtered_exceptions: list[InvoiceException] = []
     for exception_id in all_ids:
         try:
             exc = store.load(exception_id)
 
-            # Apply filters
             if req.invoice_number and exc.invoice.invoice_number != req.invoice_number:
                 continue
             if req.po_number and exc.purchase_order.po_number != req.po_number:
@@ -897,14 +382,11 @@ async def list_exceptions(
         except KeyError:
             continue
 
-    # Sort by created_at descending
     filtered_exceptions.sort(key=lambda e: e.created_at, reverse=True)
 
-    # Paginate
     total_count = len(filtered_exceptions)
     paginated = filtered_exceptions[req.offset : req.offset + req.limit]
 
-    # Convert to summaries
     summaries = []
     for exc in paginated:
         variance_pct = (
@@ -912,21 +394,22 @@ async def list_exceptions(
             if exc.purchase_order.total_amount > 0
             else 0.0
         )
-        summary = ExceptionSummary(
-            exception_id=exc.exception_id,
-            invoice_number=exc.invoice.invoice_number,
-            po_number=exc.purchase_order.po_number,
-            supplier_name=exc.supplier_name,
-            supplier_id=exc.purchase_order.supplier_id,
-            exception_types=[t.value for t in exc.exception_types],
-            total_variance_usd=exc.total_variance_usd,
-            variance_percentage=variance_pct,
-            state=exc.state.value,
-            created_at=exc.created_at,
-            approved_by=exc.approved_by,
-            rejected_by=exc.rejected_by,
+        summaries.append(
+            ExceptionSummary(
+                exception_id=exc.exception_id,
+                invoice_number=exc.invoice.invoice_number,
+                po_number=exc.purchase_order.po_number,
+                supplier_name=exc.supplier_name,
+                supplier_id=exc.purchase_order.supplier_id,
+                exception_types=[t.value for t in exc.exception_types],
+                total_variance_usd=exc.total_variance_usd,
+                variance_percentage=variance_pct,
+                state=exc.state.value,
+                created_at=exc.created_at,
+                approved_by=exc.approved_by,
+                rejected_by=exc.rejected_by,
+            )
         )
-        summaries.append(summary)
 
     return ExceptionListResponse(
         exceptions=summaries,
@@ -935,6 +418,10 @@ async def list_exceptions(
         offset=req.offset,
     )
 
+
+# ---------------------------------------------------------------------------
+# Knowledge base
+# ---------------------------------------------------------------------------
 
 class KBEmailSearchRequest(BaseModel):
     query: str
@@ -968,7 +455,7 @@ class KBTranscriptSearchResponse(BaseModel):
     "/kb/search/emails",
     response_model=KBEmailSearchResponse,
     tags=["Knowledge Base"],
-    summary="Tool 7 — Semantic Email Search",
+    summary="Semantic Email Search",
 )
 async def search_emails(req: KBEmailSearchRequest, kb: KB) -> KBEmailSearchResponse:
     results = kb.search_emails(
@@ -985,7 +472,7 @@ async def search_emails(req: KBEmailSearchRequest, kb: KB) -> KBEmailSearchRespo
     "/kb/search/transcripts",
     response_model=KBTranscriptSearchResponse,
     tags=["Knowledge Base"],
-    summary="Tool 8 — Semantic Transcript Search",
+    summary="Semantic Transcript Search",
 )
 async def search_transcripts(
     req: KBTranscriptSearchRequest,
@@ -1010,7 +497,10 @@ async def supplier_history(supplier_id: str, kb: KB) -> dict:
     return kb.resolutions.supplier_summary(supplier_id)
 
 
-# Analytics Endpoints
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+
 class AnalyticsSummaryResponse(BaseModel):
     kpis: dict
     supplier_scorecard: list[dict]
@@ -1025,8 +515,8 @@ class AnalyticsSummaryResponse(BaseModel):
     summary="Get KPI Dashboard Summary",
 )
 async def get_analytics_summary(
+    store: Store,
     days: int = 30,
-    store: Store = Depends(_get_store),
 ) -> AnalyticsSummaryResponse:
     from analytics.calculator import AnalyticsCalculator
     from datetime import timedelta
@@ -1043,58 +533,73 @@ async def get_analytics_summary(
     )
 
 
-# Rules Engine Endpoints
-_rules_store: list[dict] = []  # In-memory rules store (use Redis in production)
+# ---------------------------------------------------------------------------
+# Document parsing (OCR + LLM)
+# ---------------------------------------------------------------------------
 
-
-class RulesListResponse(BaseModel):
-    rules: list[dict]
-    total: int
-
-
-@app.get(
-    "/rules",
-    response_model=RulesListResponse,
-    tags=["Rules"],
-    summary="List all approval rules",
-)
-async def list_rules() -> RulesListResponse:
-    return RulesListResponse(rules=_rules_store, total=len(_rules_store))
+class DocumentParseResponse(BaseModel):
+    doc_type: str
+    text_chars: int
+    model: dict
 
 
 @app.post(
-    "/rules",
-    response_model=dict,
-    tags=["Rules"],
-    summary="Create new approval rule",
+    "/documents/parse",
+    response_model=DocumentParseResponse,
+    tags=["Documents"],
+    summary="Parse a PDF document via OCR + LLM",
+    description=(
+        "Upload a PDF (invoice, PO, or GRN) and receive the parsed Pydantic model. "
+        "OCR uses Tesseract; structured extraction uses the configured OpenAI-compatible LLM. "
+        "The endpoint does NOT auto-create an exception — review the parsed model, then "
+        "call /webhook/invoice, /webhook/po, or /webhook/grn to enqueue it."
+    ),
 )
-async def create_rule(rule: dict) -> dict:
-    rule["rule_id"] = str(Annotated)  # Generate ID
-    _rules_store.append(rule)
-    return {"status": "created", "rule_id": rule.get("rule_id")}
+async def parse_document(
+    doc_type: str,
+    file: UploadFile = File(...),
+) -> DocumentParseResponse:
+    """Parse a PDF via OCR and return the structured model.
+
+    ``doc_type`` must be one of: ``invoice``, ``po``, ``grn``.
+    """
+    doc_type = doc_type.lower()
+    if doc_type not in ("invoice", "po", "grn"):
+        raise HTTPException(400, f"doc_type must be one of: invoice, po, grn (got {doc_type!r})")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(400, "Empty file upload")
+
+    # OCR (Tesseract) — boundary call, may raise
+    from ingestion.ocr import extract_text_from_pdf
+    text = extract_text_from_pdf(pdf_bytes)
+
+    # LLM parse
+    from ingestion.llm_extract import make_llm_extract_fn
+    llm_fn = make_llm_extract_fn()
+
+    if doc_type == "invoice":
+        from ingestion.ocr import parse_invoice_from_text
+        model = parse_invoice_from_text(text, llm_fn)
+    elif doc_type == "po":
+        from ingestion.ocr import parse_po_from_text
+        model = parse_po_from_text(text, llm_fn)
+    else:  # grn
+        from ingestion.ocr import parse_grn_from_text
+        model = parse_grn_from_text(text, llm_fn)
+
+    return DocumentParseResponse(
+        doc_type=doc_type,
+        text_chars=len(text),
+        model=model.model_dump(mode="json"),
+    )
 
 
-@app.put(
-    "/rules/{rule_id}",
-    response_model=dict,
-    tags=["Rules"],
-    summary="Update approval rule",
-)
-async def update_rule(rule_id: str, rule: dict) -> dict:
-    for i, r in enumerate(_rules_store):
-        if r.get("rule_id") == rule_id:
-            _rules_store[i] = rule
-            return {"status": "updated"}
-    raise HTTPException(404, "Rule not found")
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 
-
-@app.delete(
-    "/rules/{rule_id}",
-    response_model=dict,
-    tags=["Rules"],
-    summary="Delete approval rule",
-)
-async def delete_rule(rule_id: str) -> dict:
-    global _rules_store
-    _rules_store = [r for r in _rules_store if r.get("rule_id") != rule_id]
-    return {"status": "deleted"}
+@app.get("/health", tags=["Health"])
+async def health() -> dict:
+    return {"status": "ok"}

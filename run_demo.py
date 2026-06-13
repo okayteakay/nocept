@@ -1,22 +1,29 @@
-from config.settings import get_settings
-from clients.redis_client import get_redis_connection
+"""End-to-end demo: generate a synthetic exception, run the LangGraph agent,
+print the resolution memo, and demonstrate knowledge-base search.
+"""
+from __future__ import annotations
+
+from agent.classifier import classify_exception
+from agent.langgraph_agent import run_pipeline
+from audit.audit_logger import AuditEvent, AuditLogger
+from clients.redis_client import RedisStreamsClient, get_redis_connection
 from clients.tavily_client import TavilyClient
-from state.redis_backend import RedisStateStore
-from audit.audit_logger import AuditLogger, RedisStreamsClient
-from agent.pipeline import run_pipeline
-from ingestion.erp_simulator import generate_informal_modification_exception, generate_batch
+from config.settings import get_settings
+from ingestion.erp_simulator import generate_informal_modification_exception
 from ingestion.json_ingestor import load_dataset
 from knowledge.client import KnowledgeBaseClient
 from knowledge.seeder import seed_knowledge_base
+from models.exception import ExceptionState, InvoiceException
 
 
-def main():
+def main() -> None:
     print("🚀 Starting End-to-End AI Agent Demo...")
 
     # 1. Setup Infrastructure
     config = get_settings()
+    config.configure_logging()
     r = get_redis_connection(config.redis_url)
-    store = RedisStateStore(r)
+    store = RedisStateStore_safe(r)
     tavily = TavilyClient(config.tavily_api_key)
     streams = RedisStreamsClient(r, "ap:audit:events")
     audit = AuditLogger(streams)
@@ -46,22 +53,57 @@ def main():
 
     # 5. Run the AI Agent Pipeline
     print("\n--- 🤖 Agent is now processing the exception...")
-    print("Steps: Classify -> Retrieve Context -> Research -> Apply Rules -> Generate Memo\n")
+    print("Steps: Classify → Retrieve Context → Tolerance → History → Comms → Research → Memo\n")
 
+    # 5a. Classify + create + persist the exception (state=RECEIVED)
+    class_res = classify_exception(invoice, po, gr, config, store=store)
+    exception = InvoiceException(
+        invoice=invoice,
+        purchase_order=po,
+        grn=gr,
+        state=ExceptionState.RECEIVED,
+        exception_types=class_res.exception_types,
+        line_variances=class_res.line_variances,
+        total_variance_usd=class_res.total_variance_usd,
+    )
+    store.save(exception)
+    audit.log(
+        AuditEvent(
+            exception_id=exception.exception_id,
+            event_type="classification",
+            details={
+                "types": [t.value for t in class_res.exception_types],
+                "variance_usd": class_res.total_variance_usd,
+            },
+        )
+    )
+
+    # 5b. Invoke the LangGraph agent
     try:
-        result = run_pipeline(invoice, po, gr, store, tavily, audit, config)
+        resolution = run_pipeline(
+            exception.exception_id,
+            store,
+            audit,
+            config,
+            tavily,
+        )
 
         print("\n--- ✅ Final Agent Resolution ---")
-        print(f"Resolution State: {result.resolution.final_state.value}")
+        print(f"Resolution State: {resolution.final_state.value}")
+
         print("\nAI Generated Memo Summary:")
         print("========================================================================")
-        print(result.resolution.memo.summary)
+        if resolution.memo and resolution.memo.summary:
+            print(resolution.memo.summary)
+        else:
+            print("(no memo generated — exception was escalated without resolution)")
         print("========================================================================")
 
         # 6. Ingest the newly resolved case into the knowledge base so future
         #    pipeline runs and human searches can reference it.
-        kb.ingest_resolved_case(result.exception, result.resolution)
-        print(f"\n--- 🗃  Case {result.exception.exception_id} added to knowledge base.")
+        exc_final = store.load(exception.exception_id)
+        kb.ingest_resolved_case(exc_final, resolution)
+        print(f"\n--- 🗃  Case {exc_final.exception_id} added to knowledge base.")
 
         # Also surface any related communications already in the KB
         _demo_kb_search(kb, po.po_number)
@@ -70,6 +112,12 @@ def main():
         print(f"\n❌ Error running pipeline: {e}")
         import traceback
         traceback.print_exc()
+
+
+def RedisStateStore_safe(r):
+    """Local import wrapper to avoid changing the import order above."""
+    from state.redis_backend import RedisStateStore
+    return RedisStateStore(r)
 
 
 def _demo_kb_search(kb: KnowledgeBaseClient, po_number: str) -> None:

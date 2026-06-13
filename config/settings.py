@@ -150,5 +150,4 @@ _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 @lru_cache(maxsize=1)
 def get_settings() -> AppConfig:
     """Return a cached singleton AppConfig instance."""
-    print(f"[DEBUG] Looking for .env at: {_ENV_PATH} (exists={_ENV_PATH.exists()})")
     return AppConfig()

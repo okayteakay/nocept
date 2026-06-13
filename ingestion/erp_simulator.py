@@ -1,12 +1,13 @@
-"""ERP Simulator — generates realistic invoice/PO/GR tuples for demos and testing.
+"""ERP Simulator — generates synthetic invoice/PO/GR triples for demos and testing.
 
-Produces synthetic Meridian Corp-style data matching the dataset schema exactly.
-All generators return (Invoice, PurchaseOrder, GoodsReceiptNote | None) triples
-that can be passed directly to agent.pipeline.run_pipeline.
+This module is the on-demand demo path. For production seeding, the API
+loads real data from ``dataset/data/`` via :mod:`ingestion.json_ingestor`.
 
-Run as a script to print a sample batch summary::
-
-    python -m ingestion.erp_simulator
+All generators return ``(Invoice, PurchaseOrder, GoodsReceiptNote | None)``
+triples that can be passed to ``agent.classifier.classify_exception`` and
+then handed to the LangGraph agent (see ``run_demo.py`` for the canonical
+wiring). Used by the dashboard's Demo Trigger to let a user pick a scenario
+and run it through the pipeline interactively.
 """
 from __future__ import annotations
 
@@ -426,67 +427,3 @@ def generate_duplicate_exception(
         payment_terms=terms,
         currency=original_invoice.currency,
     )
-
-
-def generate_batch(
-    n: int,
-    exception_rate: float = 0.25,
-    supplier_ids: list[str] | None = None,
-) -> list[tuple[Invoice, PurchaseOrder, GoodsReceiptNote | None]]:
-    """Generate n invoice sets with the given exception rate.
-
-    Exception mix within the exception fraction:
-    - 35% informal modification (full substitution)
-    - 20% expedited shipping (informal modification variant)
-    - 25% price variance
-    - 15% quantity variance
-    - 5% missing receipt
-
-    Args:
-        n: Total number of invoice sets to generate.
-        exception_rate: Fraction of invoices that should have exceptions (0–1).
-        supplier_ids: Optional list of supplier IDs to cycle through.
-
-    Returns:
-        List of (Invoice, PurchaseOrder, GoodsReceiptNote | None) tuples.
-    """
-    result = []
-    n_exceptions = int(n * exception_rate)
-    n_clean = n - n_exceptions
-
-    for _ in range(n_clean):
-        sup = random.choice(supplier_ids) if supplier_ids else None
-        result.append(generate_straight_through_invoice(supplier_id=sup))
-
-    exc_generators = (
-        [generate_informal_modification_exception] * 35
-        + [generate_expedited_shipping_exception] * 20
-        + [generate_price_variance_exception] * 25
-        + [generate_quantity_variance_exception] * 15
-        + [generate_missing_receipt_exception] * 5
-    )
-    for _ in range(n_exceptions):
-        gen = random.choice(exc_generators)
-        sup = random.choice(supplier_ids) if supplier_ids else None
-        result.append(gen(supplier_id=sup) if sup else gen())
-
-    random.shuffle(result)
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Script entry point
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("Generating demo batch of 20 invoice sets (25% exception rate)...")
-    batch = generate_batch(20, exception_rate=0.25)
-    print(f"Generated {len(batch)} sets\n")
-    for i, (inv, po, gr) in enumerate(batch, 1):
-        gr_label = gr.gr_number if gr else "MISSING"
-        variance = round(inv.total_amount - po.total_amount, 2)
-        flag = "  " if variance == 0 else f"  *** VARIANCE ${variance:+.2f}"
-        print(
-            f"  {i:2d}. {inv.invoice_number} | {po.po_number} | GR: {gr_label}"
-            f" | Total: ${inv.total_amount:,.2f}{flag}"
-        )

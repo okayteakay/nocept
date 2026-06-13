@@ -1,3 +1,9 @@
+"""Exception state machine — transition graph and validation.
+
+The graph is the single source of truth for valid lifecycle transitions.
+The actual transition enforcement lives in ``state.redis_backend.RedisStateStore.transition``,
+which validates moves against ``VALID_TRANSITIONS`` before persisting.
+"""
 from __future__ import annotations
 
 from models.exception import ExceptionState
@@ -43,47 +49,3 @@ class InvalidTransitionError(Exception):
         )
         self.from_state = from_state
         self.to_state = to_state
-
-
-class ExceptionStateMachine:
-    """Enforces valid lifecycle transitions for an InvoiceException.
-
-    Usage::
-
-        sm = ExceptionStateMachine(ExceptionState.RECEIVED)
-        sm.transition(ExceptionState.TRIAGED)
-        assert sm.current == ExceptionState.TRIAGED
-    """
-
-    def __init__(self, current_state: ExceptionState) -> None:
-        self._state = current_state
-
-    @property
-    def current(self) -> ExceptionState:
-        """The current state of this machine."""
-        return self._state
-
-    def can_transition(self, to: ExceptionState) -> bool:
-        """Return True if transitioning to *to* is permitted from the current state."""
-        return to in VALID_TRANSITIONS.get(self._state, set())
-
-    def transition(self, to: ExceptionState) -> ExceptionState:
-        """Attempt to move to state *to*.
-
-        Args:
-            to: The desired next state.
-
-        Returns:
-            The new current state.
-
-        Raises:
-            InvalidTransitionError: If the transition is not permitted.
-        """
-        if not self.can_transition(to):
-            raise InvalidTransitionError(self._state, to)
-        self._state = to
-        return self._state
-
-    def is_terminal(self) -> bool:
-        """Return True if the current state has no outgoing transitions."""
-        return not VALID_TRANSITIONS.get(self._state, set())

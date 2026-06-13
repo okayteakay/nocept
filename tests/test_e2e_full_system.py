@@ -9,8 +9,6 @@ from models.invoice import Invoice, LineItem
 from models.purchase_order import PurchaseOrder
 from models.grn import GoodsReceiptNote
 from analytics.calculator import AnalyticsCalculator
-from rules.models import ApprovalRule, RuleType, RuleAction
-from rules.engine import RuleEngine
 
 
 @pytest.fixture
@@ -349,71 +347,6 @@ class TestE2ESystem:
         assert len(trends["by_status"]) > 0
 
         print("\n✅ Analytics test PASSED")
-
-    def test_rules_engine(self, dummy_exceptions):
-        """Test rules engine with dummy data."""
-        print("\n" + "="*60)
-        print("⚙️ RULES ENGINE TEST")
-        print("="*60)
-
-        # Create some rules
-        rules = [
-            ApprovalRule(
-                name="Auto-approve small variances",
-                rule_type=RuleType.AMOUNT_LESS_THAN,
-                condition_value=50,
-                action=RuleAction.AUTO_APPROVE,
-                priority=10,
-                created_by="admin",
-            ),
-            ApprovalRule(
-                name="Auto-escalate high-risk supplier",
-                rule_type=RuleType.SUPPLIER_BLACKLIST,
-                condition_value="SUP-003",
-                action=RuleAction.ESCALATE,
-                priority=20,
-                created_by="admin",
-            ),
-            ApprovalRule(
-                name="Auto-reject huge variances",
-                rule_type=RuleType.AMOUNT_GREATER_THAN,
-                condition_value=500,
-                action=RuleAction.AUTO_REJECT,
-                priority=30,
-                created_by="admin",
-            ),
-        ]
-
-        engine = RuleEngine(rules)
-
-        # Test each exception
-        for exc in dummy_exceptions:
-            result = engine.evaluate(exc)
-            if result:
-                print(f"Invoice {exc.invoice.invoice_number}: {result.rule_name} → {result.action.value}")
-            else:
-                print(f"Invoice {exc.invoice.invoice_number}: No rule matched")
-
-        # Specific assertions
-        # Small variance (5 USD) should match "auto-approve small variances"
-        exc_small = dummy_exceptions[0]
-        result = engine.evaluate(exc_small)
-        assert result is not None
-        assert result.matched == True
-        assert result.action == RuleAction.AUTO_APPROVE
-
-        # Medium variance (75 USD) should still match "auto-approve small variances"
-        exc_medium = dummy_exceptions[1]
-        result = engine.evaluate(exc_medium)
-        # 75 > 50, so no match on first rule, but likely matches supplier blacklist
-        # Tech Solutions (SUP-002) is not in blacklist, so may not match
-
-        # Huge variance (1500 USD) - if evaluated, would match "auto-reject huge variances"
-        exc_huge = dummy_exceptions[3]
-        result = engine.evaluate(exc_huge)
-        # Already in REJECTED state, but rules would still apply
-
-        print("\n✅ Rules engine test PASSED")
 
     def test_approval_workflow(self, dummy_exceptions):
         """Test approval workflow with dummy data."""

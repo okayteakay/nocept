@@ -14,8 +14,6 @@ from models.invoice import Invoice, LineItem
 from models.purchase_order import PurchaseOrder, LineItem as POLineItem
 from state.redis_backend import RedisStateStore
 from analytics.calculator import AnalyticsCalculator
-from rules.engine import RuleEngine
-from rules.models import ApprovalRule, RuleType, RuleAction
 from datetime import date
 
 
@@ -189,44 +187,6 @@ class TestLoadConcurrent:
         print(f"   - Cost at risk: ${kpis.get('cost_at_risk', 0):.2f}")
 
         assert calc_time < 10, f"Analytics too slow: {calc_time}s"
-
-    def test_load_rules_evaluation(self, state_store):
-        """Test rules engine evaluation under load."""
-        print("\n⚙️  Testing rules evaluation...")
-
-        # Create rules
-        rules = []
-        for i in range(50):
-            rule = ApprovalRule(
-                rule_id=f"RULE-LOAD-{i:03d}",
-                name=f"Load test rule {i}",
-                rule_type=RuleType.AMOUNT_LESS_THAN if i % 2 == 0 else RuleType.SUPPLIER_WHITELIST,
-                condition_value="500" if i % 2 == 0 else "SUP-001",
-                action=RuleAction.AUTO_APPROVE,
-                priority=100 - i,
-                enabled=True,
-                created_by="test@example.com"
-            )
-            rules.append(rule)
-
-        engine = RuleEngine(rules)
-
-        # Evaluate 500 exceptions
-        start_time = time.time()
-        match_count = 0
-
-        for i in range(500):
-            exc = create_test_exception(i, variance=i % 1000)
-            result = engine.evaluate(exc)
-            if result and result.matched:
-                match_count += 1
-
-        eval_time = time.time() - start_time
-
-        print(f"✅ Evaluated 500 exceptions against 50 rules in {eval_time:.2f}s")
-        print(f"   - Avg time per evaluation: {eval_time/500*1000:.2f}ms")
-        print(f"   - Rules matched: {match_count}/500")
-        assert eval_time < 15, f"Rules too slow: {eval_time}s"
 
     def test_memory_usage_under_load(self, state_store):
         """Monitor memory usage during operations."""

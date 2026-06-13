@@ -18,8 +18,6 @@ class ResearchResult(BaseModel):
 
     queries_run: list[str]
     findings: list[TavilySearchResult]
-    relevance_summary: str
-    """Plain-English summary of what the research found."""
     supports_informal_modification: bool
     """True if at least one finding provides corroborating evidence for an informal modification."""
     supporting_evidence: list[EvidenceItem]
@@ -36,12 +34,8 @@ def research_exception(
     Gracefully handles Tavily API failures and returns empty results if research
     is completely unavailable.
     """
-    try:
-        queries = _build_search_queries(exception, context)
-        logger.info(f"Running {len(queries)} Tavily searches for exception {exception.exception_id}")
-    except Exception as e:
-        logger.error(f"Error building search queries: {e}", exc_info=True)
-        queries = []
+    queries = _build_search_queries(exception, context)
+    logger.info(f"Running {len(queries)} Tavily searches for exception {exception.exception_id}")
 
     all_findings: list[TavilySearchResult] = []
 
@@ -58,51 +52,33 @@ def research_exception(
             logger.warning(f"Tavily search failed for query '{query}': {e}")
             continue
 
-    # De-duplicate by URL and sort by relevance
-    try:
-        unique_findings = {f.url or f.title: f for f in all_findings}.values()
-        sorted_findings = sorted(unique_findings, key=lambda x: x.score, reverse=True)
-        logger.debug(f"Deduplicated to {len(sorted_findings)} unique findings")
-    except Exception as e:
-        logger.error(f"Error deduplicating findings: {e}", exc_info=True)
-        sorted_findings = all_findings
+    # De-duplicate by URL/title and sort by relevance
+    unique_findings = {f.url or f.title: f for f in all_findings}.values()
+    sorted_findings = sorted(unique_findings, key=lambda x: x.score, reverse=True)
+    logger.debug(f"Deduplicated to {len(sorted_findings)} unique findings")
 
     # Filter high-relevance findings to build evidence
     evidence = []
     supports_mod = False
-    try:
-        for f in sorted_findings:
-            try:
-                rel_score = _score_relevance(f, exception)
-                if rel_score >= 0.7:
-                    supports_mod = True
-                    evidence.append(
-                        EvidenceItem(
-                            source="tavily_search",
-                            description=(
-                                f"Found corroborating info: {f.title}. "
-                                f"Snippet: {f.content[:200] if f.content else 'N/A'}..."
-                            ),
-                            url=f.url,
-                            confidence=rel_score,
-                        )
-                    )
-            except Exception as e:
-                logger.warning(f"Error processing finding '{f.title}': {e}")
-                continue
-    except Exception as e:
-        logger.error(f"Error filtering findings: {e}", exc_info=True)
-
-    try:
-        summary = _summarize_findings(sorted_findings, exception)
-    except Exception as e:
-        logger.error(f"Error summarizing findings: {e}", exc_info=True)
-        summary = "Research summary unavailable due to processing error."
+    for f in sorted_findings:
+        rel_score = _score_relevance(f, exception)
+        if rel_score >= 0.7:
+            supports_mod = True
+            evidence.append(
+                EvidenceItem(
+                    source="tavily_search",
+                    description=(
+                        f"Found corroborating info: {f.title}. "
+                        f"Snippet: {f.content[:200] if f.content else 'N/A'}..."
+                    ),
+                    url=f.url,
+                    confidence=rel_score,
+                )
+            )
 
     return ResearchResult(
         queries_run=queries,
         findings=sorted_findings[:10],  # Limit to top 10 to avoid bloat
-        relevance_summary=summary,
         supports_informal_modification=supports_mod,
         supporting_evidence=evidence,
     )
@@ -138,8 +114,7 @@ def _build_search_queries(
         )
 
     # Preserve order while deduplicating.
-    deduped = list(dict.fromkeys(queries))
-    return deduped
+    return list(dict.fromkeys(queries))
 
 
 def _score_relevance(
@@ -158,49 +133,14 @@ def _score_relevance(
 
         # Boost if supplier name or SKUs appear in text
         boost = 0.0
-        try:
-            if exception.supplier_name.lower() in text:
-                boost += 0.2
-        except (AttributeError, TypeError):
-            pass
-
-        try:
-            for v in exception.line_variances:
-                if v.sku and v.sku.lower() in text:
-                    boost += 0.3
-                    break
-        except (AttributeError, TypeError):
-            pass
+        if exception.supplier_name.lower() in text:
+            boost += 0.2
+        for v in exception.line_variances:
+            if v.sku and v.sku.lower() in text:
+                boost += 0.3
+                break
 
         return min(1.0, base_score + boost)
     except Exception as e:
         logger.warning(f"Error scoring relevance for result '{result.title}': {e}")
         return 0.0
-
-
-def _summarize_findings(
-    findings: list[TavilySearchResult],
-    exception: InvoiceException,
-) -> str:
-    """Generate a plain-English summary of what the research found."""
-    try:
-        if not findings:
-            return "No external information found regarding this exception."
-
-        top_finding = findings[0]
-        if top_finding.score is None:
-            score = 0.0
-        else:
-            score = top_finding.score
-
-        if score > 0.7:
-            title = top_finding.title or "Unknown source"
-            return (
-                f"Research found a highly relevant match: {title}. "
-                "This suggests a plausible explanation for the variance."
-            )
-
-        return "Research returned several low-relevance results; no strong external corroboration found."
-    except Exception as e:
-        logger.warning(f"Error summarizing findings: {e}")
-        return "Research completed but summary could not be generated."

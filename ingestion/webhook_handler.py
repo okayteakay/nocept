@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import redis as redis_lib
-from fastapi import Depends, FastAPI, HTTPException, Header, status
+from fastapi import Depends, FastAPI, HTTPException, Header, Request, status
 from pydantic import BaseModel
 
 from audit.audit_logger import AuditLogger
@@ -26,31 +26,45 @@ from worker.tasks import process_exception
 
 logger = logging.getLogger(__name__)
 
-_res: dict = {}
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown lifespan: initialise Redis connection and state store."""
+    """Startup/shutdown lifespan: initialise per-app state."""
     cfg = get_settings()
     cfg.configure_logging()
 
     r = get_redis_connection(cfg.redis_url)
     streams = RedisStreamsClient(r, "ap:audit:events")
 
-    _res.update(
-        {
-            "cfg": cfg,
-            "r": r,
-            "store": RedisStateStore(r),
-            "audit": AuditLogger(streams),
-        }
-    )
+    app.state.cfg = cfg
+    app.state.r = r
+    app.state.store = RedisStateStore(r)
+    app.state.audit = AuditLogger(streams)
 
     logger.info("Webhook receiver ready — Redis connected, state store initialised.")
     yield
 
-    _res.clear()
+
+def get_cfg(request: Request) -> AppConfig:
+    return request.app.state.cfg
+
+
+def get_redis(request: Request) -> redis_lib.Redis:
+    return request.app.state.r
+
+
+def get_store(request: Request) -> RedisStateStore:
+    return request.app.state.store
+
+
+def get_audit(request: Request) -> AuditLogger:
+    return request.app.state.audit
+
+
+CfgDep = Annotated[AppConfig, Depends(get_cfg)]
+RedisDep = Annotated[redis_lib.Redis, Depends(get_redis)]
+StoreDep = Annotated[RedisStateStore, Depends(get_store)]
+AuditDep = Annotated[AuditLogger, Depends(get_audit)]
 
 
 app = FastAPI(
@@ -59,22 +73,6 @@ app = FastAPI(
     version="0.2.0",
     lifespan=lifespan,
 )
-
-
-def _get_cfg() -> AppConfig:
-    return _res["cfg"]
-
-
-def _get_r() -> redis_lib.Redis:
-    return _res["r"]
-
-
-def _get_store() -> RedisStateStore:
-    return _res["store"]
-
-
-def _get_audit() -> AuditLogger:
-    return _res["audit"]
 
 
 class WebhookPayload(BaseModel):
@@ -133,10 +131,10 @@ def _verify_signature(
 )
 async def receive_po_event(
     payload: WebhookPayload,
+    cfg: CfgDep,
+    r: RedisDep,
+    audit: AuditDep,
     x_sap_signature: str | None = Header(None),
-    cfg: AppConfig = Depends(_get_cfg),
-    r: redis_lib.Redis = Depends(_get_r),
-    audit: AuditLogger = Depends(_get_audit),
 ) -> WebhookResponse:
     """Handle an incoming PO creation or update event from SAP S/4HANA.
 
@@ -210,11 +208,11 @@ async def receive_po_event(
 )
 async def receive_invoice_event(
     payload: WebhookPayload,
+    cfg: CfgDep,
+    r: RedisDep,
+    store: StoreDep,
+    audit: AuditDep,
     x_sap_signature: str | None = Header(None),
-    cfg: AppConfig = Depends(_get_cfg),
-    r: redis_lib.Redis = Depends(_get_r),
-    store: RedisStateStore = Depends(_get_store),
-    audit: AuditLogger = Depends(_get_audit),
 ) -> WebhookResponse:
     """Handle an incoming invoice event from SAP S/4HANA.
 
@@ -341,11 +339,11 @@ async def receive_invoice_event(
 )
 async def receive_grn_event(
     payload: WebhookPayload,
+    cfg: CfgDep,
+    r: RedisDep,
+    store: StoreDep,
+    audit: AuditDep,
     x_sap_signature: str | None = Header(None),
-    cfg: AppConfig = Depends(_get_cfg),
-    r: redis_lib.Redis = Depends(_get_r),
-    store: RedisStateStore = Depends(_get_store),
-    audit: AuditLogger = Depends(_get_audit),
 ) -> WebhookResponse:
     """Handle an incoming Goods Receipt Note event from SAP S/4HANA.
 

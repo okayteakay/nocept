@@ -1,9 +1,8 @@
-from .machine import ExceptionStateMachine, InvalidTransitionError, VALID_TRANSITIONS
+from .machine import VALID_TRANSITIONS, InvalidTransitionError
 from .redis_backend import RedisStateStore
 
 __all__ = [
-    "ExceptionStateMachine",
-    "InvalidTransitionError",
     "VALID_TRANSITIONS",
+    "InvalidTransitionError",
     "RedisStateStore",
 ]

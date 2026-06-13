@@ -68,18 +68,6 @@ class TestNoResults:
         ...
 
 
-class TestWithCorroboratingEvidence:
-    def test_corroborating_result_sets_supports_informal_true(
-        self, informal_mod_triple, tavily_with_results, store
-    ):
-        ...
-
-    def test_relevance_summary_non_empty_with_results(
-        self, informal_mod_triple, tavily_with_results, store
-    ):
-        ...
-
-
 class TestTavilyLive:
     """Integration tests that hit the real Tavily API.
 

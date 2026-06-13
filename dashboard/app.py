@@ -471,7 +471,6 @@ def _execute_demo_flow(
         research = ResearchResult(
             queries_run=[],
             findings=[],
-            relevance_summary="Skipped research for straight-through invoice.",
             supports_informal_modification=False,
             supporting_evidence=[],
         )

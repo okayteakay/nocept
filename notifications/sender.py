@@ -1,24 +1,56 @@
-"""Send notifications via Slack and Email."""
+"""Send notifications via Slack and Email.
+
+Includes the small set of Pydantic models needed to type the notifications
+(Notification, NotificationChannel, NotificationEvent) — inlined here from
+a separate ``models.py`` to keep the module count down.
+"""
 from __future__ import annotations
 
 import logging
-import json
+import uuid
 from datetime import datetime, timezone
+from enum import Enum
 
-from notifications.models import Notification, NotificationChannel, NotificationEvent
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+class NotificationChannel(str, Enum):
+    SLACK = "slack"
+    EMAIL = "email"
+    DASHBOARD = "dashboard"
+
+
+class NotificationEvent(str, Enum):
+    ESCALATION = "escalation"
+    APPROVAL = "approval"
+    REJECTION = "rejection"
+    SLA_BREACH = "sla_breach"
+    RULE_TRIGGERED = "rule_triggered"
+
+
+class Notification(BaseModel):
+    notification_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    exception_id: str | None = None
+    recipient: str  # Email or Slack user ID
+    channel: NotificationChannel
+    event_type: NotificationEvent
+    subject: str
+    message: str
+    action_url: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    sent_at: datetime | None = None
+    read_at: datetime | None = None
 
 
 class SlackNotifier:
     """Send notifications via Slack."""
 
     def __init__(self, webhook_url: str | None = None):
-        """Initialize with Slack webhook URL."""
         self.webhook_url = webhook_url
 
     async def send(self, notification: Notification) -> bool:
-        """Send notification to Slack."""
         if not self.webhook_url:
             logger.warning("Slack webhook URL not configured")
             return False
@@ -42,7 +74,6 @@ class SlackNotifier:
             return False
 
     def _build_slack_message(self, notification: Notification) -> dict:
-        """Build Slack message format."""
         return {
             "text": notification.subject,
             "blocks": [
@@ -81,19 +112,16 @@ class EmailNotifier:
     """Send notifications via Email."""
 
     def __init__(self, smtp_host: str | None = None, smtp_port: int = 587):
-        """Initialize with SMTP configuration."""
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
 
     async def send(self, notification: Notification) -> bool:
-        """Send notification via Email."""
         if not self.smtp_host:
             logger.warning("SMTP host not configured")
             return False
 
         try:
-            # In production, use aiosmtplib or similar
-            # For now, log the email
+            # In production, use aiosmtplib or similar. For now, log the email.
             logger.info(
                 f"Email notification to {notification.recipient}: "
                 f"Subject='{notification.subject}' Message='{notification.message}'"
@@ -105,7 +133,6 @@ class EmailNotifier:
             return False
 
     def _build_email_html(self, notification: Notification) -> str:
-        """Build HTML email template."""
         return f"""
         <html>
             <body style="font-family: Arial, sans-serif;">
@@ -121,12 +148,10 @@ class NotificationService:
     """Centralized notification dispatch."""
 
     def __init__(self, slack_webhook: str | None = None, smtp_host: str | None = None):
-        """Initialize with Slack and Email configurations."""
         self.slack = SlackNotifier(slack_webhook)
         self.email = EmailNotifier(smtp_host)
 
     async def notify_escalation(self, exception_id: str, invoice_num: str, variance: float, recipient_email: str) -> None:
-        """Send escalation notification."""
         notification = Notification(
             exception_id=exception_id,
             recipient=recipient_email,
@@ -136,11 +161,9 @@ class NotificationService:
             message=f"Invoice {invoice_num} requires approval.\nVariance: ${variance:,.2f}",
             action_url=f"/dashboard?exception={exception_id}",
         )
-
         await self.slack.send(notification)
 
     async def notify_sla_breach(self, exception_id: str, hours_overdue: int, recipient_email: str) -> None:
-        """Send SLA breach notification."""
         notification = Notification(
             exception_id=exception_id,
             recipient=recipient_email,
@@ -150,11 +173,9 @@ class NotificationService:
             message=f"Exception {exception_id} has exceeded 24-hour SLA by {hours_overdue}h.",
             action_url=f"/dashboard?exception={exception_id}",
         )
-
         await self.slack.send(notification)
 
     async def send_daily_summary(self, recipient_email: str, pending_count: int, approved_count: int) -> None:
-        """Send daily summary email."""
         notification = Notification(
             recipient=recipient_email,
             channel=NotificationChannel.EMAIL,
@@ -170,5 +191,4 @@ class NotificationService:
             Log in to review pending exceptions.
             """,
         )
-
         await self.email.send(notification)
