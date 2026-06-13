@@ -10,7 +10,6 @@ import logging
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from agent.classifier import classify_exception
 from agent.comms_checker import check_communications
@@ -57,8 +56,29 @@ def node_classify(
     config: AppConfig,
     audit: AuditLogger,
 ) -> dict:
-    """Node 1: Classify exception by comparing invoice, PO, and GRN."""
+    """Node 1: Classify exception by comparing invoice, PO, and GRN.
+
+    Idempotent: if the exception has already been classified (e.g., by the
+    webhook handler at intake), trust the existing classification and skip
+    the duplicate check, which would otherwise see its own freshly-saved
+    record and flag the exception as a self-duplicate.
+    """
     exception = state["exception"]
+
+    if exception.exception_types:
+        # Already classified at intake — skip re-classification.
+        audit.log(
+            AuditEvent(
+                exception_id=exception.exception_id,
+                event_type="classification_unchanged",
+                details={
+                    "types": [t.value for t in exception.exception_types],
+                    "variance_usd": exception.total_variance_usd,
+                },
+            )
+        )
+        return {"exception": exception}
+
     classification = classify_exception(
         exception.invoice,
         exception.purchase_order,
@@ -138,7 +158,8 @@ def node_gate_tolerance(
             )
         )
 
-    return {"decision": decision}
+    # Return the updated exception so downstream nodes see the new state.
+    return {"decision": decision, "exception": exception}
 
 
 def node_gate_history(
@@ -146,16 +167,13 @@ def node_gate_history(
     store: RedisStateStore,
     audit: AuditLogger,
 ) -> dict:
-    """Node 4: Check historical approvals for similar exceptions."""
-    exception = state["exception"]
+    """Node 4: Check historical approvals for similar exceptions.
 
-    if exception.state == ExceptionState.RECEIVED:
-        store.transition(exception.exception_id, ExceptionState.TRIAGED)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.RECEIVED,
-            ExceptionState.TRIAGED,
-        )
+    The first gate (gate_tolerance) handles the RECEIVED → TRIAGED transition.
+    By the time this node runs, the state is already TRIAGED in both store and
+    in-memory state — no transition needed here.
+    """
+    exception = state["exception"]
 
     result = check_historical_approval(exception)
     decision = None
@@ -265,11 +283,45 @@ def node_research(
 def node_generate_memo(
     state: AgentState,
 ) -> dict:
-    """Node 7: Generate resolution memo from all gathered evidence."""
+    """Node 7: Generate resolution memo from all gathered evidence.
+
+    When the pipeline short-circuits (Gate 0 duplicate, Gate 1 straight-through)
+    some fields may be None. Use safe defaults so the memo generator can still
+    build a useful summary.
+    """
     exception = state["exception"]
     decision = state["decision"]
     research_result = state["research_result"]
     context = state["context"]
+
+    if context is None:
+        from agent.context_retriever import SupplierContext
+        context = SupplierContext(
+            supplier_id=exception.invoice.supplier_id,
+            historical_exceptions=[],
+            substitution_patterns=[],
+            average_price_uplift_pct=None,
+            exception_rate=None,
+        )
+    if research_result is None:
+        from agent.researcher import ResearchResult
+        research_result = ResearchResult(
+            queries_run=[],
+            findings=[],
+            supports_informal_modification=False,
+            supporting_evidence=[],
+        )
+    if decision is None:
+        from agent.rules_engine import RulesDecision
+        from models.resolution import ResolutionAction, RootCause
+        decision = RulesDecision(
+            action=ResolutionAction.ESCALATE_TO_HUMAN,
+            root_cause=RootCause.UNRESOLVED,
+            confidence=0.0,
+            reasoning="No decision was made by the pipeline; defaulting to escalation.",
+            auto_resolvable=False,
+            approved_by_step=0,
+        )
 
     memo = generate_memo(exception, decision, research_result, context)
     return {"memo": memo}
@@ -285,18 +337,57 @@ def node_persist(
     decision = state["decision"]
     memo = state["memo"]
 
+    # If no decision made it into state (short-circuit without generate_memo
+    # populating decision), default to escalation so we never crash.
+    if decision is None:
+        from agent.rules_engine import RulesDecision
+        from models.resolution import ResolutionAction, RootCause
+        decision = RulesDecision(
+            action=ResolutionAction.ESCALATE_TO_HUMAN,
+            root_cause=RootCause.UNRESOLVED,
+            confidence=0.0,
+            reasoning="No decision was set in pipeline state; defaulting to escalation.",
+            auto_resolvable=False,
+            approved_by_step=0,
+        )
+
     final_state = (
         ExceptionState.RESOLVED if decision.auto_resolvable else ExceptionState.ESCALATED
     )
 
-    # Walk state machine to final state
-    current = exception.state
+    # Reload from store to get the authoritative state — in-memory `exception`
+    # may be stale (gate nodes update persisted state without mutating the
+    # in-memory object).
+    persisted = store.load(exception.exception_id)
+    current = persisted.state
+
     if current != final_state and current not in (
         ExceptionState.RESOLVED,
         ExceptionState.ESCALATED,
+        ExceptionState.APPROVED,
+        ExceptionState.REJECTED,
     ):
-        store.transition(exception.exception_id, final_state)
-        audit.log_transition(exception.exception_id, current, final_state)
+        from state.machine import VALID_TRANSITIONS
+        # BFS for shortest path current → final_state
+        from collections import deque
+        queue: deque[list[ExceptionState]] = deque([[current]])
+        visited: set[ExceptionState] = {current}
+        path: list[ExceptionState] = []
+        while queue:
+            route = queue.popleft()
+            node = route[-1]
+            if node == final_state:
+                path = route[1:]
+                break
+            for neighbor in VALID_TRANSITIONS.get(node, set()):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(route + [neighbor])
+        prev = current
+        for next_state in path:
+            store.transition(exception.exception_id, next_state)
+            audit.log_transition(exception.exception_id, prev, next_state)
+            prev = next_state
 
     resolution = Resolution(
         exception_id=exception.exception_id,
@@ -449,9 +540,11 @@ def build_agent(
     builder.add_edge("generate_memo", "persist")
     builder.add_edge("persist", END)
 
-    # Compile with in-memory checkpoint for resumability
-    checkpointer = MemorySaver()
-    graph = builder.compile(checkpointer=checkpointer)
+    # Compile the graph. No in-memory checkpointer: end-to-end latency is
+    # <30s, and Celery task retries already provide durable resumption. The
+    # in-memory checkpointer also requires every value in the state to be
+    # msgpack-serializable, which the gate-result dataclasses are not.
+    graph = builder.compile()
 
     return graph
 
