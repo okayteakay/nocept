@@ -16,22 +16,19 @@ from agent.comms_checker import check_communications
 from agent.context_retriever import SupplierContext, retrieve_supplier_context
 from agent.history_checker import check_historical_approval
 from agent.memo_generator import generate_memo
-from agent.researcher import ResearchResult, research_exception
 from agent.rules_engine import (
     RulesDecision,
     gate_communications,
     gate_duplicate,
     gate_escalate,
     gate_history,
-    gate_research,
     gate_tolerance,
 )
 from audit.audit_logger import AuditEvent, AuditLogger
-from clients.redis_client import get_redis_connection
-from clients.tavily_client import TavilyClient
 from config.settings import AppConfig
 from models.exception import ExceptionState, InvoiceException, ExceptionType
-from models.resolution import Resolution, ResolutionMemo
+from models.resolution import Resolution, ResolutionAction, ResolutionMemo, RootCause
+from state.machine import SHORTEST_PATHS
 from state.redis_backend import RedisStateStore
 
 logger = logging.getLogger(__name__)
@@ -46,7 +43,6 @@ class AgentState(TypedDict):
     decision: RulesDecision | None
     history_result: object | None  # HistoricalCheckResult
     comms_result: object | None  # CommsCheckResult
-    research_result: ResearchResult | None
     memo: ResolutionMemo | None
 
 
@@ -56,13 +52,7 @@ def node_classify(
     config: AppConfig,
     audit: AuditLogger,
 ) -> dict:
-    """Node 1: Classify exception by comparing invoice, PO, and GRN.
-
-    Idempotent: if the exception has already been classified (e.g., by the
-    webhook handler at intake), trust the existing classification and skip
-    the duplicate check, which would otherwise see its own freshly-saved
-    record and flag the exception as a self-duplicate.
-    """
+    """Node 1: Classify exception. Skip if already classified at intake."""
     exception = state["exception"]
 
     if exception.exception_types:
@@ -85,6 +75,7 @@ def node_classify(
         exception.grn,
         config,
         store=store,
+        exception_id=exception.exception_id,
     )
 
     exception.exception_types = classification.exception_types
@@ -167,12 +158,7 @@ def node_gate_history(
     store: RedisStateStore,
     audit: AuditLogger,
 ) -> dict:
-    """Node 4: Check historical approvals for similar exceptions.
-
-    The first gate (gate_tolerance) handles the RECEIVED → TRIAGED transition.
-    By the time this node runs, the state is already TRIAGED in both store and
-    in-memory state — no transition needed here.
-    """
+    """Node 4: Check historical approvals for similar exceptions."""
     exception = state["exception"]
 
     result = check_historical_approval(exception)
@@ -228,62 +214,10 @@ def node_gate_comms(
     return {"decision": decision, "comms_result": result}
 
 
-def node_research(
-    state: AgentState,
-    store: RedisStateStore,
-    tavily: TavilyClient,
-    audit: AuditLogger,
-) -> dict:
-    """Node 6: Run web research to corroborate exception."""
-    exception = state["exception"]
-    context = state["context"]
-
-    if exception.state == ExceptionState.TRIAGED:
-        store.transition(exception.exception_id, ExceptionState.RESEARCHING)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.TRIAGED,
-            ExceptionState.RESEARCHING,
-        )
-    elif exception.state == ExceptionState.RECEIVED:
-        store.transition(exception.exception_id, ExceptionState.TRIAGED)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.RECEIVED,
-            ExceptionState.TRIAGED,
-        )
-        store.transition(exception.exception_id, ExceptionState.RESEARCHING)
-        audit.log_transition(
-            exception.exception_id,
-            ExceptionState.TRIAGED,
-            ExceptionState.RESEARCHING,
-        )
-
-    research_result = research_exception(exception, context, tavily)
-
-    decision = gate_research(exception, research_result)
-    if not decision:
-        decision = gate_escalate()
-
-    audit.log(
-        AuditEvent(
-            exception_id=exception.exception_id,
-            event_type="research_complete",
-            details={
-                "queries": research_result.queries_run,
-                "findings": len(research_result.findings),
-                "corroborates": research_result.supports_informal_modification,
-            },
-        )
-    )
-
-    return {"decision": decision, "research_result": research_result}
-
-
 def node_generate_memo(
     state: AgentState,
 ) -> dict:
-    """Node 7: Generate resolution memo from all gathered evidence.
+    """Node 6: Generate resolution memo from all gathered evidence.
 
     When the pipeline short-circuits (Gate 0 duplicate, Gate 1 straight-through)
     some fields may be None. Use safe defaults so the memo generator can still
@@ -291,39 +225,22 @@ def node_generate_memo(
     """
     exception = state["exception"]
     decision = state["decision"]
-    research_result = state["research_result"]
     context = state["context"]
 
     if context is None:
-        from agent.context_retriever import SupplierContext
         context = SupplierContext(
-            supplier_id=exception.invoice.supplier_id,
-            historical_exceptions=[],
-            substitution_patterns=[],
-            average_price_uplift_pct=None,
-            exception_rate=None,
-        )
-    if research_result is None:
-        from agent.researcher import ResearchResult
-        research_result = ResearchResult(
-            queries_run=[],
-            findings=[],
-            supports_informal_modification=False,
-            supporting_evidence=[],
+            supplier_id=exception.invoice.supplier_id, historical_exceptions=[],
+            substitution_patterns=[], average_price_uplift_pct=None, exception_rate=None,
         )
     if decision is None:
-        from agent.rules_engine import RulesDecision
-        from models.resolution import ResolutionAction, RootCause
         decision = RulesDecision(
             action=ResolutionAction.ESCALATE_TO_HUMAN,
-            root_cause=RootCause.UNRESOLVED,
-            confidence=0.0,
+            root_cause=RootCause.UNRESOLVED, confidence=0.0,
             reasoning="No decision was made by the pipeline; defaulting to escalation.",
-            auto_resolvable=False,
-            approved_by_step=0,
+            auto_resolvable=False, approved_by_step=0,
         )
 
-    memo = generate_memo(exception, decision, research_result, context)
+    memo = generate_memo(exception, decision, context)
     return {"memo": memo}
 
 
@@ -332,21 +249,18 @@ def node_persist(
     store: RedisStateStore,
     audit: AuditLogger,
 ) -> dict:
-    """Node 8: Persist resolution to Redis and audit trail, send notifications."""
+    """Node 7: Persist resolution to Redis and audit trail."""
     exception = state["exception"]
     decision = state["decision"]
     memo = state["memo"]
 
-    # If no decision made it into state (short-circuit without generate_memo
-    # populating decision), default to escalation so we never crash.
+    # Safe default if decision is somehow None
     if decision is None:
-        from agent.rules_engine import RulesDecision
-        from models.resolution import ResolutionAction, RootCause
         decision = RulesDecision(
             action=ResolutionAction.ESCALATE_TO_HUMAN,
             root_cause=RootCause.UNRESOLVED,
             confidence=0.0,
-            reasoning="No decision was set in pipeline state; defaulting to escalation.",
+            reasoning="No decision was made; defaulting to escalation.",
             auto_resolvable=False,
             approved_by_step=0,
         )
@@ -355,39 +269,12 @@ def node_persist(
         ExceptionState.RESOLVED if decision.auto_resolvable else ExceptionState.ESCALATED
     )
 
-    # Reload from store to get the authoritative state — in-memory `exception`
-    # may be stale (gate nodes update persisted state without mutating the
-    # in-memory object).
-    persisted = store.load(exception.exception_id)
-    current = persisted.state
-
-    if current != final_state and current not in (
-        ExceptionState.RESOLVED,
-        ExceptionState.ESCALATED,
-        ExceptionState.APPROVED,
-        ExceptionState.REJECTED,
-    ):
-        from state.machine import VALID_TRANSITIONS
-        # BFS for shortest path current → final_state
-        from collections import deque
-        queue: deque[list[ExceptionState]] = deque([[current]])
-        visited: set[ExceptionState] = {current}
-        path: list[ExceptionState] = []
-        while queue:
-            route = queue.popleft()
-            node = route[-1]
-            if node == final_state:
-                path = route[1:]
-                break
-            for neighbor in VALID_TRANSITIONS.get(node, set()):
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append(route + [neighbor])
-        prev = current
-        for next_state in path:
-            store.transition(exception.exception_id, next_state)
-            audit.log_transition(exception.exception_id, prev, next_state)
-            prev = next_state
+    # Walk state to final — precomputed shortest paths for the reachable combos
+    current = store.load(exception.exception_id).state
+    for next_state in SHORTEST_PATHS.get((current, final_state), []):
+        store.transition(exception.exception_id, next_state)
+        audit.log_transition(exception.exception_id, current, next_state)
+        current = next_state
 
     resolution = Resolution(
         exception_id=exception.exception_id,
@@ -396,27 +283,6 @@ def node_persist(
     )
     store.save_resolution(resolution)
     audit.log_resolution(resolution)
-
-    exception = store.load(exception.exception_id)
-    from knowledge.client import KnowledgeBaseClient
-    from clients.redis_client import get_redis_connection
-    from config.settings import get_settings
-    from notifications.notifier import Notifier
-
-    cfg = get_settings()
-    r = get_redis_connection(cfg.redis_url)
-    kb = KnowledgeBaseClient.from_config(r, cfg)
-    kb.ingest_resolved_case(exception, resolution)
-
-    # Send notifications
-    try:
-        notifier = Notifier(cfg)
-        if final_state == ExceptionState.ESCALATED:
-            notifier.notify_escalation(exception, memo)
-        else:
-            notifier.notify_resolution(exception, memo, final_state)
-    except Exception as e:
-        logger.warning(f"Failed to send notification: {e}")
 
     return {}
 
@@ -445,15 +311,14 @@ def route_after_history(state: AgentState) -> str:
 
 
 def route_after_comms(state: AgentState) -> str:
-    """Route after comms: to memo if decided, else to research."""
-    return "generate_memo" if state["decision"] else "research"
+    """Route after comms: straight to memo generation."""
+    return "generate_memo"
 
 
 def build_agent(
     store: RedisStateStore,
     audit: AuditLogger,
     config: AppConfig,
-    tavily: TavilyClient,
 ) -> object:
     """Build the compiled LangGraph state machine.
 
@@ -483,15 +348,6 @@ def build_agent(
         partial(node_gate_history, store=store, audit=audit),
     )
     builder.add_node("gate_comms", partial(node_gate_comms, audit=audit))
-    builder.add_node(
-        "research",
-        partial(
-            node_research,
-            store=store,
-            tavily=tavily,
-            audit=audit,
-        ),
-    )
     builder.add_node("generate_memo", node_generate_memo)
     builder.add_node("persist", partial(node_persist, store=store, audit=audit))
 
@@ -527,23 +383,13 @@ def build_agent(
         },
     )
 
-    builder.add_conditional_edges(
-        "gate_comms",
-        route_after_comms,
-        {
-            "generate_memo": "generate_memo",
-            "research": "research",
-        },
-    )
+    builder.add_edge("gate_comms", "generate_memo")
 
-    builder.add_edge("research", "generate_memo")
     builder.add_edge("generate_memo", "persist")
     builder.add_edge("persist", END)
 
     # Compile the graph. No in-memory checkpointer: end-to-end latency is
-    # <30s, and Celery task retries already provide durable resumption. The
-    # in-memory checkpointer also requires every value in the state to be
-    # msgpack-serializable, which the gate-result dataclasses are not.
+    # <30s, and BackgroundTasks provide durable async execution.
     graph = builder.compile()
 
     return graph
@@ -554,7 +400,6 @@ def run_pipeline(
     store: RedisStateStore,
     audit: AuditLogger,
     config: AppConfig,
-    tavily: TavilyClient,
 ) -> Resolution:
     """Execute the full invoice exception resolution pipeline.
 
@@ -566,14 +411,13 @@ def run_pipeline(
         store: RedisStateStore instance
         audit: AuditLogger instance
         config: AppConfig instance
-        tavily: TavilyClient instance
 
     Returns:
         Resolution object with final state and memo
 
     Raises:
         KeyError: if exception_id not found in store
-        Exception: if pipeline fails (LLM, Tavily, etc.)
+        Exception: if pipeline fails (LLM, etc.)
     """
     logger.info(f"Starting pipeline for exception {exception_id}")
 
@@ -583,7 +427,7 @@ def run_pipeline(
         f"{exception.invoice.invoice_number} vs {exception.purchase_order.po_number}"
     )
 
-    graph = build_agent(store, audit, config, tavily)
+    graph = build_agent(store, audit, config)
 
     initial_state: AgentState = {
         "exception_id": exception_id,
@@ -592,7 +436,6 @@ def run_pipeline(
         "decision": None,
         "history_result": None,
         "comms_result": None,
-        "research_result": None,
         "memo": None,
     }
 

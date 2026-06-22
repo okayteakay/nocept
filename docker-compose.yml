@@ -1,35 +1,26 @@
 version: "3.9"
 
-# Autonomous Invoice Exception Resolution System — Production Architecture
+# Invoice Exception Resolution System — Minimal Architecture
 #
 # Services:
-#   - redis: Data store, state machine, audit logs, Celery broker
-#   - api: FastAPI orchestrate/api.py — REST endpoints (Tool 1-8)
-#   - webhook: FastAPI ingestion/webhook_handler.py — SAP webhook receiver
-#   - worker: Celery worker — runs LangGraph pipeline asynchronously
-#   - dashboard: Streamlit UI — read-only + approve/reject actions
-#   - flower: Celery Flower — task monitoring UI
+#   - redis: Data store, state machine, audit logs
+#   - api: FastAPI orchestrate/api.py — unified ingestion + approval endpoints
 #
 # Start:    docker compose up -d
 # Stop:     docker compose down
 # Wipe:     docker compose down -v
-# Logs:     docker compose logs -f worker  (or any service name)
-#
-# Ports:
-#   6379 (Redis), 8001 (RedisInsight), 8000 (API), 8001 (Webhook),
-#   8502 (Dashboard), 5555 (Flower)
+# Logs:     docker compose logs -f api
 
 services:
   redis:
-    image: redis/redis-stack:latest
+    image: redis:7-alpine
     container_name: nocept-redis
     ports:
-      - "6379:6379"    # Redis
-      - "8001:8001"    # RedisInsight UI
+      - "6379:6379"
     volumes:
       - redis_data:/data
     environment:
-      REDIS_ARGS: "--save 60 1 --loglevel warning"
+      - REDIS_ARGS=--save 60 1 --loglevel warning
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -44,7 +35,6 @@ services:
       uvicorn orchestrate.api:app
         --host 0.0.0.0
         --port 8000
-        --reload
     ports:
       - "8000:8000"
     depends_on:
@@ -54,92 +44,10 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-    restart: unless-stopped
-    volumes:
-      - .:/app
-
-  webhook:
-    build: .
-    container_name: nocept-webhook
-    command: |
-      uvicorn ingestion.webhook_handler:app
-        --host 0.0.0.0
-        --port 8001
-        --reload
-    ports:
-      - "8002:8001"
-    depends_on:
-      redis:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-    restart: unless-stopped
-    volumes:
-      - .:/app
-
-  worker:
-    build: .
-    container_name: nocept-worker
-    command: |
-      celery -A worker.celery_app worker
-        -Q ap_pipeline
-        -c 4
-        --loglevel=info
-        -f /var/log/celery/worker.log
-    depends_on:
-      redis:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-    restart: unless-stopped
-    volumes:
-      - .:/app
-      - celery_logs:/var/log/celery
-
-  dashboard:
-    build: .
-    container_name: nocept-dashboard
-    command: streamlit run dashboard/app.py --server.port 8502
-    ports:
-      - "8502:8502"
-    depends_on:
-      redis:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-    restart: unless-stopped
-    volumes:
-      - .:/app
-
-  flower:
-    build: .
-    container_name: nocept-flower
-    command: |
-      celery -A worker.celery_app flower
-        --port=5555
-        --broker=redis://redis:6379/1
-    ports:
-      - "5555:5555"
-    depends_on:
-      redis:
-        condition: service_healthy
     restart: unless-stopped
     volumes:
       - .:/app
 
 volumes:
   redis_data:
-    driver: local
-  celery_logs:
     driver: local

@@ -39,6 +39,23 @@ VALID_TRANSITIONS: dict[ExceptionState, set[ExceptionState]] = {
 }
 
 
+# Shortest legal transition path between non-terminal states and the two
+# final states (RESOLVED, ESCALATED). Keyed by (from, to). The BFS on this
+# 7-node DAG resolves to these nine entries; precomputing lets the persist
+# step stay a simple dict lookup.
+SHORTEST_PATHS: dict[tuple[ExceptionState, ExceptionState], list[ExceptionState]] = {
+    (ExceptionState.RECEIVED, ExceptionState.RESOLVED): [ExceptionState.TRIAGED, ExceptionState.RESOLVED],
+    (ExceptionState.RECEIVED, ExceptionState.ESCALATED): [ExceptionState.TRIAGED, ExceptionState.ESCALATED],
+    (ExceptionState.TRIAGED, ExceptionState.RESOLVED): [ExceptionState.RESOLVED],
+    (ExceptionState.TRIAGED, ExceptionState.ESCALATED): [ExceptionState.ESCALATED],
+    (ExceptionState.RESEARCHING, ExceptionState.RESOLVED): [ExceptionState.PENDING_APPROVAL, ExceptionState.RESOLVED],
+    (ExceptionState.RESEARCHING, ExceptionState.ESCALATED): [ExceptionState.ESCALATED],
+    (ExceptionState.PENDING_APPROVAL, ExceptionState.RESOLVED): [ExceptionState.RESOLVED],
+    (ExceptionState.PENDING_APPROVAL, ExceptionState.ESCALATED): [ExceptionState.ESCALATED],
+    (ExceptionState.ESCALATED, ExceptionState.RESOLVED): [ExceptionState.RESOLVED],
+}
+
+
 class InvalidTransitionError(Exception):
     """Raised when a requested state transition is not permitted."""
 

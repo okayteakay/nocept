@@ -33,10 +33,24 @@ class ResolutionAction(str, Enum):
 class EvidenceItem(BaseModel):
     """A single piece of supporting evidence for a resolution decision."""
 
-    source: str  # "redis_history" | "tavily_search" | "rule_engine"
+    source: str  # "redis_history" | "rule_engine"
     description: str
     url: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
+
+
+class ResearchResult(BaseModel):
+    """Structured outcome of the (now removed) external research gate.
+
+    Kept as a thin value type so the pipeline's memo generator and state
+    plumbing still compile; the research gate itself was removed, so this
+    is always constructed empty at runtime.
+    """
+
+    queries_run: list[str] = Field(default_factory=list)
+    findings: list[str] = Field(default_factory=list)
+    supports_informal_modification: bool = False
+    supporting_evidence: list[EvidenceItem] = Field(default_factory=list)
 
 
 class ResolutionMemo(BaseModel):

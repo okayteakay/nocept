@@ -4,15 +4,13 @@ from .exception_record import ExceptionRecord, ExceptionType
 from .grn import GoodsReceiptNote
 from .invoice import Invoice, LineItem
 from .purchase_order import PurchaseOrder
-from .resolution import EvidenceItem, Resolution, ResolutionAction, ResolutionMemo, RootCause
-from .supplier import (
-    Buyer,
-    Catalog,
-    ProductCategory,
-    ProductGrade,
-    Supplier,
-    SupplierWithCatalog,
-    load_catalog,
+from .resolution import (
+    EvidenceItem,
+    Resolution,
+    ResolutionAction,
+    ResolutionMemo,
+    ResearchResult,
+    RootCause,
 )
 
 __all__ = [
@@ -33,15 +31,8 @@ __all__ = [
     "ResolutionAction",
     "RootCause",
     "EvidenceItem",
+    "ResearchResult",
     # Communications
     "Email",
     "PhoneTranscript",
-    # Supplier & catalog
-    "Supplier",
-    "SupplierWithCatalog",
-    "ProductCategory",
-    "ProductGrade",
-    "Buyer",
-    "Catalog",
-    "load_catalog",
 ]

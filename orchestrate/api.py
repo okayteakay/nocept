@@ -1,30 +1,12 @@
-"""orchestrate/api.py
+"""Invoice exception resolution API with unified ingestion endpoint.
 
-FastAPI application exposing the dashboard, knowledge-base, analytics, and
-human-approval endpoints for the autonomous invoice exception resolution agent.
+FastAPI application exposing:
+- Unified /ingest endpoint for invoice|po|grn in json|text|image|pdf format
+- Human approval/rejection endpoints
+- Exception listing and search
+- Health check
 
-The six-step pipeline itself runs in-process as a LangGraph state machine in
-agent/langgraph_agent.py and is triggered asynchronously by worker/tasks.py
-after an SAP webhook lands. The remaining `/tools/*` endpoints are the
-human approval actions used by the dashboard.
-
-Endpoints
----------
-Auth
-    POST /auth/token             issue JWT
-    POST /auth/refresh           refresh JWT
-    GET  /auth/me                current user
-Dashboard / search
-    POST /exceptions/list        search & filter the exception queue
-Human approval
-    POST /tools/approve/{id}     manually approve an escalated exception
-    POST /tools/reject/{id}      manually reject an escalated exception
-Knowledge base
-    POST /kb/search/emails       semantic search over emails
-    POST /kb/search/transcripts  semantic search over transcripts
-    GET  /kb/history/{id}        supplier resolution history summary
-Analytics
-    GET  /analytics/summary      KPIs, supplier scorecard, trends
+The resolution pipeline runs asynchronously via FastAPI BackgroundTasks.
 """
 from __future__ import annotations
 
@@ -32,21 +14,21 @@ import logging
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 import redis as redis_lib
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from agent.langgraph_agent import run_pipeline
 from audit.audit_logger import AuditEvent, AuditLogger
-from auth.jwt_auth import router as auth_router
 from clients.redis_client import RedisStreamsClient, get_redis_connection
-from clients.tavily_client import TavilyClient
 from config.settings import AppConfig, get_settings
-from ingestion.json_ingestor import DatasetBundle, load_dataset
-from knowledge.client import KnowledgeBaseClient
-from knowledge.seeder import seed_knowledge_base
+from ingestion.normalizer import normalize_document
 from models.exception import ExceptionState, InvoiceException
+from models.grn import GoodsReceiptNote
+from models.invoice import Invoice
+from models.purchase_order import PurchaseOrder
 from state.machine import VALID_TRANSITIONS
 from state.redis_backend import RedisStateStore
 
@@ -55,58 +37,35 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize per-app state. Resources live on app.state, not in a module-global dict,
-    so they survive multi-worker deployments and remain accessible to FastAPI dependencies
-    via request.app.state.
-    """
+    """Initialize per-app state."""
     cfg = get_settings()
     cfg.configure_logging()
     r = get_redis_connection(cfg.redis_url)
     streams = RedisStreamsClient(r, "ap:audit:events")
-    dataset = load_dataset()
-
-    kb = KnowledgeBaseClient.from_config(r, cfg)
-    seed_counts = seed_knowledge_base(dataset, kb.resolutions, kb.emails, kb.transcripts)
-    logger.info(
-        "Knowledge base seeded — resolutions: %d, emails: %d, transcripts: %d",
-        seed_counts["resolutions"],
-        seed_counts["emails"],
-        seed_counts["transcripts"],
-    )
 
     app.state.cfg = cfg
     app.state.r = r
     app.state.store = RedisStateStore(r)
-    app.state.tavily = TavilyClient(cfg.tavily_api_key)
     app.state.audit = AuditLogger(streams)
-    app.state.dataset = dataset
-    app.state.kb = kb
 
-    logger.info(
-        "Tavily API key loaded: %s",
-        f"{cfg.tavily_api_key[:12]}..." if cfg.tavily_api_key else "NOT SET",
-    )
-    logger.info("Orchestrate API ready — dataset loaded, Redis connected, KB seeded.")
+    logger.info("API ready — Redis connected, state store initialised.")
     yield
-    # app.state is cleaned up automatically by FastAPI on shutdown
 
 
 app = FastAPI(
-    title="Invoice Exception Resolution — Dashboard & KB API",
+    title="Invoice Exception Resolution API",
     description=(
-        "RESTful API for the autonomous LangGraph agent: dashboard search, "
-        "human approval, knowledge-base search, and analytics. The six-gate "
-        "decision pipeline runs asynchronously via Celery."
+        "RESTful API for autonomous invoice exception resolution. "
+        "Unified ingestion endpoint for documents (invoice/po/grn), "
+        "human approval/rejection, and exception management."
     ),
-    version="4.0.0",
+    version="5.0.0",
     lifespan=lifespan,
 )
 
-app.include_router(auth_router)
-
 
 # ---------------------------------------------------------------------------
-# Dependencies — read from app.state (per-app, request-safe, multi-worker-safe)
+# Dependencies
 # ---------------------------------------------------------------------------
 
 def get_store(request: Request) -> RedisStateStore:
@@ -121,10 +80,6 @@ def get_cfg(request: Request) -> AppConfig:
     return request.app.state.cfg
 
 
-def get_kb(request: Request) -> KnowledgeBaseClient:
-    return request.app.state.kb
-
-
 def get_audit(request: Request) -> AuditLogger:
     return request.app.state.audit
 
@@ -132,12 +87,249 @@ def get_audit(request: Request) -> AuditLogger:
 Store = Annotated[RedisStateStore, Depends(get_store)]
 R = Annotated[redis_lib.Redis, Depends(get_redis)]
 Cfg = Annotated[AppConfig, Depends(get_cfg)]
-KB = Annotated[KnowledgeBaseClient, Depends(get_kb)]
 Audit = Annotated[AuditLogger, Depends(get_audit)]
 
 
 # ---------------------------------------------------------------------------
-# Human approval
+# Ingestion
+# ---------------------------------------------------------------------------
+
+class IngestRequest(BaseModel):
+    doc_type: Literal["invoice", "po", "grn"] = Field(
+        description="Document type: invoice, po, or grn"
+    )
+    format: Literal["json", "text", "image", "pdf"] = Field(
+        description="Data format"
+    )
+    data: str | dict | bytes = Field(
+        description="Raw document data (string for text, dict/string for json, base64 string for image/pdf)"
+    )
+    po_number: str | None = Field(
+        default=None,
+        description="PO number (required for GRN, optional for invoice)"
+    )
+
+
+class IngestResponse(BaseModel):
+    status: str
+    message: str
+    exception_id: str | None = None
+
+
+async def _run_pipeline_background(
+    exception_id: str,
+    store: RedisStateStore,
+    audit: AuditLogger,
+    config: AppConfig,
+) -> None:
+    """Run the pipeline in the background."""
+    try:
+        run_pipeline(exception_id, store, audit, config)
+    except Exception as e:
+        logger.error(f"Background pipeline failed for {exception_id}: {e}", exc_info=True)
+
+
+@app.post(
+    "/ingest",
+    response_model=IngestResponse,
+    tags=["Ingestion"],
+    summary="Ingest Invoice, PO, or GRN",
+)
+async def ingest(
+    req: IngestRequest,
+    store: Store,
+    r: R,
+    cfg: Cfg,
+    audit: Audit,
+    bg_tasks: BackgroundTasks,
+) -> IngestResponse:
+    """Unified document ingestion endpoint.
+
+    For PO/GRN: normalizes and caches in Redis.
+    For invoice: normalizes, creates exception, runs pipeline in background.
+
+    Returns 200 for PO/GRN, 202 for invoice (Accepted).
+    """
+    doc_type = req.doc_type.lower()
+    data_format = req.format.lower()
+
+    # Normalize the document
+    try:
+        # Convert data if needed (handle base64 for image/pdf)
+        data = req.data
+        if data_format in ("image", "pdf") and isinstance(data, str):
+            import base64
+            data = base64.b64decode(data)
+
+        normalized = normalize_document(doc_type, data_format, data)
+        logger.info(f"Successfully normalized {doc_type} document")
+    except Exception as e:
+        logger.error(f"Normalization failed for {doc_type}: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Failed to normalize {doc_type}: {str(e)}",
+        )
+
+    # Handle PO: cache with 30-day TTL
+    if doc_type == "po":
+        po: PurchaseOrder = normalized
+        try:
+            import redis as redis_lib
+            po_json_str = po.model_dump_json()
+            logger.info(f"★★★ ATTEMPTING TO CACHE PO {po.po_number} ★★★")
+            logger.info(f"Caching PO: type={type(po_json_str)}, len={len(po_json_str)}")
+            # Use raw redis connection (no decode_responses) to avoid redis-py encoding issues
+            raw_r = redis_lib.Redis.from_url(cfg.redis_url, decode_responses=False)
+            logger.info(f"★★★ CREATED RAW REDIS CONNECTION ★★★")
+            raw_r.execute_command(b"SET", f"po:{po.po_number}".encode(), po_json_str.encode(), b"EX", b"2592000")
+            logger.info(f"★★★ SUCCESSFULLY CACHED PO {po.po_number} ★★★")
+            audit.log(
+                AuditEvent(
+                    event_type="po_received",
+                    details={
+                        "po_number": po.po_number,
+                        "supplier_id": po.supplier_id,
+                        "total_amount": float(po.total_amount),
+                    },
+                )
+            )
+            logger.info(f"PO {po.po_number} cached in Redis")
+            return IngestResponse(
+                status="stored",
+                message=f"PO {po.po_number} received and cached",
+            )
+        except Exception as e:
+            logger.error(f"Failed to cache PO: {e}")
+            raise HTTPException(status_code=500, detail="Failed to cache PO")
+
+    # Handle GRN: cache and re-trigger missing exceptions
+    if doc_type == "grn":
+        grn: GoodsReceiptNote = normalized
+        po_number = grn.po_number
+
+        try:
+            import redis as redis_lib
+            grn_json_str = grn.model_dump_json()
+            # Use raw redis connection (no decode_responses) to avoid redis-py encoding issues
+            raw_r = redis_lib.Redis.from_url(cfg.redis_url, decode_responses=False)
+            raw_r.execute_command(b"SET", f"grn:{po_number}".encode(), grn_json_str.encode(), b"EX", b"2592000")
+            audit.log(
+                AuditEvent(
+                    event_type="grn_received",
+                    details={
+                        "gr_number": grn.gr_number,
+                        "po_number": po_number,
+                        "supplier_id": grn.supplier_id,
+                    },
+                )
+            )
+            logger.info(f"GRN {grn.gr_number} cached in Redis")
+
+            # Check for MISSING_GOODS_RECEIPT exceptions on this PO and re-trigger
+            from models.exception import ExceptionType
+
+            exceptions_received = store.list_by_state(ExceptionState.RECEIVED)
+            exceptions_triaged = store.list_by_state(ExceptionState.TRIAGED)
+            all_exc_ids = set(exceptions_received + exceptions_triaged)
+
+            retriggered_count = 0
+            for exc_id in all_exc_ids:
+                try:
+                    exc = store.load(exc_id)
+                    if (
+                        exc.purchase_order.po_number == po_number
+                        and ExceptionType.MISSING_GOODS_RECEIPT in exc.exception_types
+                    ):
+                        exc.grn = grn
+                        store.save(exc)
+                        bg_tasks.add_task(
+                            _run_pipeline_background, exc_id, store, audit, cfg
+                        )
+                        logger.info(f"Re-triggered exception {exc_id} with GRN {grn.gr_number}")
+                        retriggered_count += 1
+                except KeyError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"Error re-triggering exception {exc_id}: {e}")
+
+            msg = f"GRN {grn.gr_number} received and cached"
+            if retriggered_count > 0:
+                msg += f"; re-triggered {retriggered_count} exception(s)"
+
+            return IngestResponse(
+                status="stored",
+                message=msg,
+            )
+        except Exception as e:
+            logger.error(f"Failed to cache GRN: {e}")
+            raise HTTPException(status_code=500, detail="Failed to cache GRN")
+
+    # Handle invoice: create exception and run pipeline
+    if doc_type == "invoice":
+        invoice: Invoice = normalized
+
+        # Look up PO from Redis
+        po_key = f"po:{invoice.po_number}"
+        po_json = r.get(po_key)
+        if po_json is None:
+            logger.warning(f"PO {invoice.po_number} not found in Redis")
+            raise HTTPException(
+                status_code=422,
+                detail=f"PO {invoice.po_number} not found. Call /ingest with PO first.",
+            )
+
+        po_str = po_json if isinstance(po_json, str) else po_json.decode()
+        po = PurchaseOrder.model_validate_json(po_str)
+
+        # Look up GRN if present
+        grn = None
+        grn_key = f"grn:{invoice.po_number}"
+        grn_json = r.get(grn_key)
+        if grn_json:
+            grn_str = grn_json if isinstance(grn_json, str) else grn_json.decode()
+            grn = GoodsReceiptNote.model_validate_json(grn_str)
+
+        # Create exception
+        exc = InvoiceException(
+            invoice=invoice,
+            purchase_order=po,
+            grn=grn,
+            state=ExceptionState.RECEIVED,
+        )
+
+        try:
+            store.save(exc)
+            logger.info(f"Exception {exc.exception_id} created and saved")
+
+            audit.log(
+                AuditEvent(
+                    exception_id=exc.exception_id,
+                    event_type="invoice_received",
+                    details={
+                        "invoice_number": invoice.invoice_number,
+                        "po_number": invoice.po_number,
+                        "supplier_id": invoice.supplier_id,
+                        "total_amount": float(invoice.total_amount),
+                    },
+                )
+            )
+
+            # Enqueue background task
+            bg_tasks.add_task(_run_pipeline_background, exc.exception_id, store, audit, cfg)
+            logger.info(f"Background pipeline enqueued for {exc.exception_id}")
+
+            return IngestResponse(
+                status="accepted",
+                message=f"Invoice {invoice.invoice_number} accepted for processing",
+                exception_id=exc.exception_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create exception: {e}")
+            raise HTTPException(status_code=500, detail="Failed to create exception")
+
+
+# ---------------------------------------------------------------------------
+# Human Approval
 # ---------------------------------------------------------------------------
 
 class ApprovalRequest(BaseModel):
@@ -162,6 +354,43 @@ class RejectionResponse(BaseModel):
     message: str
 
 
+def _walk_to_final(
+    store: RedisStateStore,
+    audit: AuditLogger,
+    eid: str,
+    current: ExceptionState,
+    target: ExceptionState,
+) -> None:
+    """Walk state machine from current to target using valid transitions."""
+    if current == target or current in (
+        ExceptionState.APPROVED,
+        ExceptionState.REJECTED,
+        ExceptionState.RESOLVED,
+    ):
+        return
+
+    queue = deque([[current]])
+    visited = {current}
+    path = []
+
+    while queue:
+        route = queue.popleft()
+        node = route[-1]
+        if node == target:
+            path = route[1:]
+            break
+        for neighbor in VALID_TRANSITIONS.get(node, set()):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(route + [neighbor])
+
+    prev = current
+    for next_state in path:
+        store.transition(eid, next_state)
+        audit.log_transition(eid, prev, next_state)
+        prev = next_state
+
+
 @app.post(
     "/tools/approve/{exception_id}",
     response_model=ApprovalResponse,
@@ -172,7 +401,6 @@ async def approve(
     exception_id: str,
     req: ApprovalRequest,
     store: Store,
-    r: R,
     audit: Audit,
 ) -> ApprovalResponse:
     exc = store.load(exception_id)
@@ -222,7 +450,6 @@ async def reject(
     exception_id: str,
     req: RejectionRequest,
     store: Store,
-    r: R,
     audit: Audit,
 ) -> RejectionResponse:
     exc = store.load(exception_id)
@@ -262,51 +489,8 @@ async def reject(
     )
 
 
-def _walk_to_final(
-    store: RedisStateStore,
-    audit: AuditLogger,
-    eid: str,
-    current: ExceptionState,
-    target: ExceptionState,
-) -> None:
-    """Walk the state machine from *current* to *target* using valid transitions.
-
-    Uses the VALID_TRANSITIONS graph to compute a direct path rather than
-    hard-coding intermediate states, so it never attempts an illegal jump.
-    Short-circuits only for actual terminal states (APPROVED, REJECTED, RESOLVED).
-    """
-    if current == target or current in (
-        ExceptionState.APPROVED,
-        ExceptionState.REJECTED,
-        ExceptionState.RESOLVED,
-    ):
-        return
-
-    # BFS to find the shortest valid path from current → target
-    queue: deque[list[ExceptionState]] = deque([[current]])
-    visited: set[ExceptionState] = {current}
-    path: list[ExceptionState] = []
-
-    while queue:
-        route = queue.popleft()
-        node = route[-1]
-        if node == target:
-            path = route[1:]  # skip `current`, it's where we already are
-            break
-        for neighbor in VALID_TRANSITIONS.get(node, set()):
-            if neighbor not in visited:
-                visited.add(neighbor)
-                queue.append(route + [neighbor])
-
-    prev = current
-    for next_state in path:
-        store.transition(eid, next_state)
-        audit.log_transition(eid, prev, next_state)
-        prev = next_state
-
-
 # ---------------------------------------------------------------------------
-# Dashboard / search / filter
+# Exception Search / Dashboard
 # ---------------------------------------------------------------------------
 
 class ExceptionSummary(BaseModel):
@@ -352,13 +536,12 @@ class ExceptionListResponse(BaseModel):
 async def list_exceptions(
     req: ExceptionListRequest,
     store: Store,
-    r: R,
 ) -> ExceptionListResponse:
-    all_ids: set[str] = set(store.list_queue_ids())
+    all_ids = set(store.list_queue_ids())
     for state in ExceptionState:
         all_ids.update(store.list_by_state(state))
 
-    filtered_exceptions: list[InvoiceException] = []
+    filtered_exceptions = []
     for exception_id in all_ids:
         try:
             exc = store.load(exception_id)
@@ -416,183 +599,6 @@ async def list_exceptions(
         total_count=total_count,
         limit=req.limit,
         offset=req.offset,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Knowledge base
-# ---------------------------------------------------------------------------
-
-class KBEmailSearchRequest(BaseModel):
-    query: str
-    top_k: int = Field(default=10, ge=1, le=50)
-    date_filter: str | None = None
-    po_filter: str | None = None
-    invoice_filter: str | None = None
-
-
-class KBEmailSearchResponse(BaseModel):
-    query: str
-    results: list[dict]
-    total: int
-
-
-class KBTranscriptSearchRequest(BaseModel):
-    query: str
-    top_k: int = Field(default=10, ge=1, le=50)
-    date_filter: str | None = None
-    po_filter: str | None = None
-    invoice_filter: str | None = None
-
-
-class KBTranscriptSearchResponse(BaseModel):
-    query: str
-    results: list[dict]
-    total: int
-
-
-@app.post(
-    "/kb/search/emails",
-    response_model=KBEmailSearchResponse,
-    tags=["Knowledge Base"],
-    summary="Semantic Email Search",
-)
-async def search_emails(req: KBEmailSearchRequest, kb: KB) -> KBEmailSearchResponse:
-    results = kb.search_emails(
-        query=req.query,
-        top_k=req.top_k,
-        date_filter=req.date_filter,
-        po_filter=req.po_filter,
-        invoice_filter=req.invoice_filter,
-    )
-    return KBEmailSearchResponse(query=req.query, results=results, total=len(results))
-
-
-@app.post(
-    "/kb/search/transcripts",
-    response_model=KBTranscriptSearchResponse,
-    tags=["Knowledge Base"],
-    summary="Semantic Transcript Search",
-)
-async def search_transcripts(
-    req: KBTranscriptSearchRequest,
-    kb: KB,
-) -> KBTranscriptSearchResponse:
-    results = kb.search_transcripts(
-        query=req.query,
-        top_k=req.top_k,
-        date_filter=req.date_filter,
-        po_filter=req.po_filter,
-        invoice_filter=req.invoice_filter,
-    )
-    return KBTranscriptSearchResponse(query=req.query, results=results, total=len(results))
-
-
-@app.get(
-    "/kb/history/{supplier_id}",
-    tags=["Knowledge Base"],
-    summary="Supplier Resolution History",
-)
-async def supplier_history(supplier_id: str, kb: KB) -> dict:
-    return kb.resolutions.supplier_summary(supplier_id)
-
-
-# ---------------------------------------------------------------------------
-# Analytics
-# ---------------------------------------------------------------------------
-
-class AnalyticsSummaryResponse(BaseModel):
-    kpis: dict
-    supplier_scorecard: list[dict]
-    trends: dict
-    timestamp: str
-
-
-@app.get(
-    "/analytics/summary",
-    response_model=AnalyticsSummaryResponse,
-    tags=["Analytics"],
-    summary="Get KPI Dashboard Summary",
-)
-async def get_analytics_summary(
-    store: Store,
-    days: int = 30,
-) -> AnalyticsSummaryResponse:
-    from analytics.calculator import AnalyticsCalculator
-    from datetime import timedelta
-
-    calculator = AnalyticsCalculator(store)
-    date_from = datetime.now(timezone.utc) - timedelta(days=days)
-    summary = calculator.get_summary(date_from=date_from)
-
-    return AnalyticsSummaryResponse(
-        kpis=summary["kpis"],
-        supplier_scorecard=summary["supplier_scorecard"],
-        trends=summary["trends"],
-        timestamp=summary["timestamp"],
-    )
-
-
-# ---------------------------------------------------------------------------
-# Document parsing (OCR + LLM)
-# ---------------------------------------------------------------------------
-
-class DocumentParseResponse(BaseModel):
-    doc_type: str
-    text_chars: int
-    model: dict
-
-
-@app.post(
-    "/documents/parse",
-    response_model=DocumentParseResponse,
-    tags=["Documents"],
-    summary="Parse a PDF document via OCR + LLM",
-    description=(
-        "Upload a PDF (invoice, PO, or GRN) and receive the parsed Pydantic model. "
-        "OCR uses Tesseract; structured extraction uses the configured OpenAI-compatible LLM. "
-        "The endpoint does NOT auto-create an exception — review the parsed model, then "
-        "call /webhook/invoice, /webhook/po, or /webhook/grn to enqueue it."
-    ),
-)
-async def parse_document(
-    doc_type: str,
-    file: UploadFile = File(...),
-) -> DocumentParseResponse:
-    """Parse a PDF via OCR and return the structured model.
-
-    ``doc_type`` must be one of: ``invoice``, ``po``, ``grn``.
-    """
-    doc_type = doc_type.lower()
-    if doc_type not in ("invoice", "po", "grn"):
-        raise HTTPException(400, f"doc_type must be one of: invoice, po, grn (got {doc_type!r})")
-
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(400, "Empty file upload")
-
-    # OCR (Tesseract) — boundary call, may raise
-    from ingestion.ocr import extract_text_from_pdf
-    text = extract_text_from_pdf(pdf_bytes)
-
-    # LLM parse
-    from ingestion.llm_extract import make_llm_extract_fn
-    llm_fn = make_llm_extract_fn()
-
-    if doc_type == "invoice":
-        from ingestion.ocr import parse_invoice_from_text
-        model = parse_invoice_from_text(text, llm_fn)
-    elif doc_type == "po":
-        from ingestion.ocr import parse_po_from_text
-        model = parse_po_from_text(text, llm_fn)
-    else:  # grn
-        from ingestion.ocr import parse_grn_from_text
-        model = parse_grn_from_text(text, llm_fn)
-
-    return DocumentParseResponse(
-        doc_type=doc_type,
-        text_chars=len(text),
-        model=model.model_dump(mode="json"),
     )
 
 

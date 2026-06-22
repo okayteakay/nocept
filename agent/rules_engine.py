@@ -1,7 +1,7 @@
 """
 agent/rules_engine.py
 
-Six-step decision engine for invoice exception resolution.
+Decision engine for invoice exception resolution.
 
 Step  Gate                                    Action if met
 ────  ──────────────────────────────────────  ─────────────────────
@@ -10,16 +10,12 @@ Step  Gate                                    Action if met
   2   PO variance ≤ 1 % of PO total           AUTO_APPROVE (1.0)
   3   Similar historical approved case        AUTO_APPROVE (0.9)
   4   Email / transcript directly confirms   AUTO_APPROVE (0.85)
-  5   External web research corroborates      AUTO_APPROVE (0.80)
-  6   None of the above                       ESCALATE_TO_HUMAN (0.5)
-
-Steps 3–5 are run inside the individual orchestrate API tools so that
-watsonx Orchestrate can display each gate result to the operator.
+  5   None of the above                       ESCALATE_TO_HUMAN (0.5)
 
 This module also exposes apply_rules() — the consolidated single-call
-entry point used by Tool 6 (resolve) when the incremental checks have
-already been stored in Redis.  Pass the pre-computed gate results as
-keyword arguments; apply_rules() honours the first gate that resolved.
+entry point used when the incremental checks have already been stored in
+Redis.  Pass the pre-computed gate results as keyword arguments;
+apply_rules() honours the first gate that resolved.
 """
 from __future__ import annotations
 
@@ -32,15 +28,11 @@ from pydantic import BaseModel
 from agent.comms_checker import CommsCheckResult, check_communications
 from agent.context_retriever import SupplierContext
 from agent.history_checker import HistoricalCheckResult, check_historical_approval
-from agent.researcher import ResearchResult
 from config.settings import AppConfig
 from models.exception import ExceptionType, InvoiceException
 from models.resolution import ResolutionAction, RootCause
 
 logger = logging.getLogger(__name__)
-
-# Minimum average confidence of Tavily evidence to auto-approve via web research
-RESEARCH_CORROBORATION_THRESHOLD = 0.7
 
 
 class RulesDecision(BaseModel):
@@ -161,54 +153,17 @@ def gate_communications(exception: InvoiceException) -> tuple[Optional[RulesDeci
     return None, result
 
 
-def gate_research(
-    exception: InvoiceException,
-    research: ResearchResult,
-) -> Optional[RulesDecision]:
-    """
-    Gate 5: External web research corroborates the exception → AUTO_APPROVE.
-
-    Requires research.supports_informal_modification == True AND the average
-    confidence of supporting_evidence items ≥ RESEARCH_CORROBORATION_THRESHOLD.
-    """
-    if not research.supports_informal_modification:
-        return None
-
-    if not research.supporting_evidence:
-        return None
-
-    avg_conf = sum(e.confidence for e in research.supporting_evidence) / len(
-        research.supporting_evidence
-    )
-    if avg_conf < RESEARCH_CORROBORATION_THRESHOLD:
-        return None
-
-    return RulesDecision(
-        action=ResolutionAction.AUTO_APPROVE,
-        root_cause=RootCause.UNDOCUMENTED_MODIFICATION,
-        confidence=0.80,
-        reasoning=(
-            f"Web research corroborates this exception "
-            f"({len(research.supporting_evidence)} supporting source(s), "
-            f"avg confidence {avg_conf:.2f})."
-        ),
-        auto_resolvable=True,
-        approved_by_step=5,
-    )
-
-
 def gate_escalate() -> RulesDecision:
-    """Gate 6: No gate fired → ESCALATE_TO_HUMAN."""
+    """Gate 5: No gate fired → ESCALATE_TO_HUMAN."""
     return RulesDecision(
         action=ResolutionAction.ESCALATE_TO_HUMAN,
         root_cause=RootCause.UNRESOLVED,
         confidence=0.5,
         reasoning=(
             "None of the automated approval gates resolved this exception: "
-            "variance exceeds the 1% tolerance (Gate 2), "
+            "variance exceeds the tolerance threshold (Gate 2), "
             "no sufficiently similar historical approved case found (Gate 3), "
-            "linked communications do not directly confirm the exception (Gate 4), "
-            "and external web research did not corroborate it (Gate 5). "
+            "and linked communications do not directly confirm the exception (Gate 4). "
             "Human review required."
         ),
         auto_resolvable=False,
@@ -224,7 +179,6 @@ def gate_escalate() -> RulesDecision:
 def apply_rules(
     exception: InvoiceException,
     context: SupplierContext,
-    research: ResearchResult,
     config: AppConfig,
     *,
     history_result: Optional[HistoricalCheckResult] = None,
@@ -233,8 +187,8 @@ def apply_rules(
     """
     Run all gates in order and return the first decision that fires.
 
-    When the orchestrate API has already run gates 3 and 4 separately
-    (storing results in Redis), pass in those pre-computed results as
+    When the caller has already run gates 3 and 4 separately (storing
+    results in Redis), pass in those pre-computed results as
     history_result / comms_result to avoid duplicate work.
     """
     # Gate 0 — duplicate
@@ -282,12 +236,7 @@ def apply_rules(
             approved_by_step=4,
         )
 
-    # Gate 5 — web research
-    d = gate_research(exception, research)
-    if d:
-        return d
-
-    # Gate 6 — escalate
+    # Gate 5 — escalate
     return gate_escalate()
 
 

@@ -21,7 +21,7 @@ class AuditEvent(BaseModel):
     """A single event in the exception lifecycle audit trail."""
 
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    exception_id: str
+    exception_id: str | None = None
     event_type: str
     """
     One of:
@@ -69,7 +69,7 @@ class AuditLogger:
         # Redis Streams require flat string key-value pairs
         fields = {
             "event_id": event.event_id,
-            "exception_id": event.exception_id,
+            "exception_id": event.exception_id if event.exception_id else "",
             "event_type": event.event_type,
             "previous_state": str(event.previous_state) if event.previous_state else "",
             "new_state": str(event.new_state) if event.new_state else "",

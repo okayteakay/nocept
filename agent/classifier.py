@@ -31,6 +31,7 @@ def classify_exception(
     grn: GoodsReceiptNote | None,
     config: AppConfig,
     store: RedisStateStore | None = None,
+    exception_id: str | None = None,
 ) -> ClassificationResult:
     """Perform three-way matching and classify all detected mismatch types.
 
@@ -54,6 +55,7 @@ def classify_exception(
         grn: The Goods Receipt Note, or None if not yet received.
         config: AppConfig for tolerance thresholds.
         store: Optional RedisStateStore for duplicate detection.
+        exception_id: Optional ID of current exception to exclude from duplicate check.
 
     Returns:
         ClassificationResult with all detected exception types and variances.
@@ -69,7 +71,7 @@ def classify_exception(
     #    down, fail open (continue classification without duplicate flag).
     if store is not None:
         try:
-            if check_duplicate(invoice, store):
+            if check_duplicate(invoice, store, exclude_exception_id=exception_id):
                 exception_types.append(ExceptionType.DUPLICATE_INVOICE)
                 logger.info(
                     "Invoice %s flagged as duplicate for supplier %s",
@@ -296,7 +298,7 @@ def _detect_informal_modification_signals(
     return signals
 
 
-def check_duplicate(invoice: Invoice, store: RedisStateStore) -> bool:
+def check_duplicate(invoice: Invoice, store: RedisStateStore, exclude_exception_id: str | None = None) -> bool:
     """Return True if this invoice is a duplicate of a prior exception for the supplier.
 
     Duplicate detection fingerprint: ``(supplier_id, invoice_number, total_amount)``.
@@ -314,6 +316,7 @@ def check_duplicate(invoice: Invoice, store: RedisStateStore) -> bool:
     Args:
         invoice: The invoice to check.
         store: The Redis state store to query.
+        exclude_exception_id: Optional exception ID to skip (for checking without finding self).
 
     Returns:
         True if a prior exception with the same (supplier_id, invoice_number,
@@ -329,6 +332,9 @@ def check_duplicate(invoice: Invoice, store: RedisStateStore) -> bool:
     try:
         existing = store.list_by_supplier(invoice.supplier_id)
         for e in existing:
+            # Skip the current exception if provided (avoid self-duplicate)
+            if exclude_exception_id and e.exception_id == exclude_exception_id:
+                continue
             if (
                 e.invoice.invoice_number == invoice.invoice_number
                 and abs(float(e.invoice.total_amount) - float(invoice.total_amount)) < 0.01

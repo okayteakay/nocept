@@ -49,29 +49,30 @@
 
 #### **Slide 3: How the System Works — The Pipeline (2 min)**
 
-**Visual:** Six-step pipeline diagram
+**Visual:** Four-gate pipeline diagram
 
 ```
 Invoice + PO + Goods Receipt
          ↓
-[1] CLASSIFY → Detect exception type & variance
+[1] CLASSIFY & CHECK DUPLICATES
+    → Detect exception type & variance
+    → Check if already submitted before
+    → Duplicate? ESCALATE
          ↓
-[2] TOLERANCE → Is variance ≤ 1%? AUTO-APPROVE
+[2] TOLERANCE → Is variance ≤ threshold? AUTO-APPROVE
          ↓
 [3] HISTORY → Similar case approved before? AUTO-APPROVE
          ↓
 [4] COMMUNICATIONS → Email/call confirms it? AUTO-APPROVE
          ↓
-[5] RESEARCH → Web search corroborates? AUTO-APPROVE
-         ↓
-[6] ESCALATE → Route to human reviewer
+No gate fired? ESCALATE → Route to human reviewer
          ↓
 Resolution → Memo generated → Audit trail recorded
 ```
 
-**Key Metric:** System auto-approves/rejects 60-80% of exceptions. Remaining 20-40% escalate to managers.
+**Key Metric:** System auto-approves 60-80% of exceptions. Remaining 20-40% escalate to managers with evidence.
 
-**Key Message:** "First gate that fires determines outcome. Fast, deterministic, auditable."
+**Key Message:** "Four deterministic gates: classify, tolerance, history, communications. No complex rules or external research—just fast, explainable decisions."
 
 ---
 
@@ -86,40 +87,37 @@ Resolution → Memo generated → Audit trail recorded
 - Expedited shipping overages
 
 **Automatic Resolution (4 gates):**
-1. Within 1% tolerance → Auto-approve
-2. Matches historical precedent → Auto-approve
-3. Confirmed by email or call notes → Auto-approve
-4. Corroborated by public source (Tavily search) → Auto-approve
+1. Within tolerance threshold → Auto-approve (confidence: 1.0)
+2. Matches historical precedent → Auto-approve (confidence: 0.9)
+3. Confirmed by email or call notes → Auto-approve (confidence: 0.85)
+4. No variance or all gates clear → Auto-approve
 
-**Escalation:** If none match → Route to manager with evidence summary
+**Escalation:** If no gate fires → Route to manager with evidence summary
 
-**Key Message:** System is conservative. It auto-rejects only duplicates. Everything else either auto-approves with evidence OR escalates for review.
+**Key Message:** System is deterministic and conservative. It auto-rejects only duplicates. Everything else either auto-approves with evidence OR escalates for review. No external APIs or web research—pure logic.
 
 ---
 
-#### **Slide 5: Your Dashboard — Overview (2 min)**
+#### **Slide 5: Using the System — REST API (2 min)**
 
-**Three Main Views:**
+**Three Core Operations:**
 
-1. **Exception Queue (AP Clerk, AP Manager)**
-   - Live list of exceptions
-   - Status badges (New, Researching, Pending Approval, Resolved)
-   - Quick filters (supplier, amount, date, status)
-   - Click to drill into details
+1. **Ingest Documents**
+   - Upload invoices, POs, goods receipts (JSON, text, image, PDF)
+   - System auto-normalizes and validates
+   - Pipeline runs in background (202 Accepted)
 
-2. **Analytics Dashboard (Finance, CFO)**
-   - KPI summary (auto-approval rate, SLA compliance)
-   - Supplier scorecards (performance, variance trends)
-   - Spend variance report
-   - Trend analysis (by supplier, exception type, month)
+2. **Monitor Exceptions**
+   - Search/filter by supplier, invoice, PO, status
+   - Track real-time state: RECEIVED → TRIAGED → ESCALATED/RESOLVED
+   - View supporting evidence (variance breakdown, linked communications)
 
-3. **Approval Workflow (AP Manager)**
-   - Escalated exceptions requiring decision
-   - Evidence summary (communications, research, history)
-   - One-click approve/reject
-   - Memo generation (auto-filled with agent findings)
+3. **Approve/Reject**
+   - Review escalated exceptions
+   - One-click approve or reject
+   - System logs your decision with timestamp
 
-**Key Message:** Same dashboard, different permissions based on your role.
+**Key Message:** Simple REST API (no complex UI). Integrates with your existing AP/ERP system.
 
 ---
 
@@ -152,52 +150,42 @@ Resolution → Memo generated → Audit trail recorded
 #### **Slide 7: Role: AP Manager — Decision Authority (2 min)**
 
 **What You Can Do:**
-- View all exceptions
+- View all exceptions (current & historical)
 - Approve or reject escalated exceptions
-- Create approval rules (automate future similar cases)
-- Override auto-decisions if necessary (audit trail recorded)
-- View team performance metrics
-- Export approval history
+- View detailed evidence (communications, historical matches, variance breakdown)
+- Export approval history for audit
 
 **What You Cannot Do:**
 - Delete exceptions
 - Modify resolution logic (gates)
-- Access other departments' data
+- Create custom approval rules
 
 **Typical Workflow:**
-1. Check "Pending Approval" queue each morning
-2. Review AI evidence (comms, research, history)
+1. Check escalated exceptions each morning (REST API)
+2. Review AI evidence: variance %, matched history, comms
 3. Approve or reject with optional notes
-4. Create rule if pattern detected
-5. Monitor escalation trends weekly
+4. System logs your decision to audit trail
+5. Monitor escalation patterns weekly
 
-**Key Message:** You focus on exceptions that matter. The AI handles the rest.
+**Key Message:** You focus on exceptions that matter. The AI handles routine cases. Every decision is audited.
 
 ---
 
-#### **Slide 8: Role: Finance/CFO — Analytics & Reporting (2 min)**
+#### **Slide 8: Auditing & Compliance (2 min)**
 
-**What You Can Do:**
-- View KPI dashboard (auto-approval rate, SLA, cost at risk)
-- Supplier scorecards (exception frequency, variance trends)
-- Spend variance analysis (by supplier, by exception type)
-- Filter by date range, supplier category, exception type
-- Export analytics to Excel
-- Schedule auto-email reports
+**Complete Audit Trail:**
+- Every exception state change logged to Redis Streams
+- Timestamps, actor IDs, decision rationale
+- Immutable record (append-only, no deletion)
+- SOX-compliant (financial controls)
 
-**What You Cannot Do:**
-- Approve/reject exceptions
-- Modify rules
-- Create exceptions
+**Access Patterns:**
+- Query exceptions by supplier, date, status
+- View all approvals/rejections with timestamps
+- Track cost impact (variance amount × frequency)
+- Export exception history for external audit
 
-**Typical Workflow:**
-1. Weekly: Review KPI dashboard
-2. Identify suppliers with high exception rates
-3. Analyze variance trends
-4. Present findings to CFO/AP Director
-5. Track cost savings (auto-approvals prevent overpayment)
-
-**Key Message:** This system turns exceptions into insights. Track ROI, supplier performance, and compliance metrics in real time.
+**Key Message:** Transparent, auditable system. Every decision leaves a trail.
 
 ---
 
@@ -206,19 +194,17 @@ Resolution → Memo generated → Audit trail recorded
 **State Lifecycle:** (Visual state diagram)
 
 ```
-RECEIVED → TRIAGED → RESEARCHING → PENDING_APPROVAL → APPROVED/REJECTED
-                  ↘                              ↙
-                     ESCALATED ─────────────────
-                           ↓
-                      RESOLVED
+RECEIVED → TRIAGED → RESOLVED (auto-approved via gates)
+                  ↘
+                   ESCALATED → APPROVED (manager) or REJECTED (manager)
 ```
 
 **Status Badges & Meaning:**
 
 | Badge | State | Meaning | Action |
 |-------|-------|---------|--------|
-| 🔴 New | RECEIVED/TRIAGED | Arrived, being classified | System processing |
-| 🟡 Researching | RESEARCHING | AI gathering evidence | System processing |
+| 🔴 New | RECEIVED | Invoice ingested, awaiting processing | System processing |
+| 🟡 Analyzing | TRIAGED | Classification & gates running | System processing |
 | 🟡 Pending Approval | PENDING_APPROVAL | Awaits manager decision | Manager action needed |
 | 🟠 Escalated | ESCALATED | Routed to human reviewer | Manager action needed |
 | 🟢 Resolved | RESOLVED | Auto-approved by system | Complete |
@@ -234,29 +220,29 @@ RECEIVED → TRIAGED → RESEARCHING → PENDING_APPROVAL → APPROVED/REJECTED
 **What the System Shows You:**
 
 1. **Variance Summary**
-   - Line-by-line breakdown (SKU, qty, price)
-   - Total variance in USD
-   - % variance vs. PO
+   - Line-by-line breakdown (SKU, qty, price, variance %)
+   - Total variance in USD and percentage
+   - Which SKUs differ from PO
 
-2. **Audit Trail**
-   - Gate that fired (tolerance, history, comms, research)
+2. **Decision Rationale**
+   - Which gate fired (tolerance, history, comms)
    - Confidence score (0.0–1.0)
-   - Evidence cited
+   - Exact reasoning
 
 3. **Communications**
-   - Linked emails (clickable)
-   - Call transcripts (summarized)
+   - Linked emails / call transcripts that explain the variance
    - Timestamp of communication
+   - LLM analysis of relevance
 
-4. **Research Results**
-   - Web search findings (Tavily)
-   - Public sources corroborating exception
-   - Relevance score
-
-5. **Historical Precedent**
+4. **Historical Precedent**
    - Similar approved cases for this supplier
-   - Variance range & dates
-   - Decision history
+   - Variance range & approval dates
+   - Pattern analysis
+
+5. **Duplicate Detection**
+   - If duplicate: prior exception ID
+   - Timestamp of original
+   - Amount, supplier, invoice number match
 
 **How to Use It:**
 - **Confidence 0.9+:** Trust the recommendation (AI is 90%+ sure)
@@ -271,9 +257,9 @@ RECEIVED → TRIAGED → RESEARCHING → PENDING_APPROVAL → APPROVED/REJECTED
 
 **Scenario 1: 1.5% Price Variance — No Evidence**
 - **What Happened:** Invoice 2% higher than PO
-- **System Decision:** Escalated (outside 1% tolerance, no comms)
+- **System Decision:** Escalated (outside tolerance, no comms to explain)
 - **Your Decision:** Check for published price increases. Supplier's market rate?
-- **Action:** Approve if valid. Reject if error. Create rule for future.
+- **Action:** Approve if valid. Reject if error. Note pattern for next similar case.
 
 **Scenario 2: Duplicate Invoice**
 - **What Happened:** Same invoice number, appears twice

@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 
 from agent.context_retriever import SupplierContext
-from agent.researcher import ResearchResult
 from agent.rules_engine import RulesDecision
 from models.exception import InvoiceException
-from models.resolution import EvidenceItem, ResolutionMemo
+from models.resolution import EvidenceItem, ResearchResult, ResolutionMemo
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +13,11 @@ logger = logging.getLogger(__name__)
 def generate_memo(
     exception: InvoiceException,
     decision: RulesDecision,
-    research: ResearchResult,
     context: SupplierContext,
 ) -> ResolutionMemo:
     """Assemble the structured resolution memo for an exception."""
 
-    evidence = _format_evidence_items(research, context, decision, exception)
+    evidence = _format_evidence_items(context, decision, exception)
     summary = _write_summary(exception, decision, context)
 
     return ResolutionMemo(
@@ -34,7 +32,6 @@ def generate_memo(
 
 
 def _format_evidence_items(
-    research: ResearchResult,
     context: SupplierContext,
     decision: RulesDecision,
     exception: InvoiceException,
@@ -58,11 +55,7 @@ def _format_evidence_items(
                 )
             )
 
-    # 2. Tavily search findings
-    for item in research.supporting_evidence:
-        evidence_list.append(item)
-
-    # 3. Rule engine rationale
+    # 2. Rule engine rationale
     evidence_list.append(
         EvidenceItem(
             source="rule_engine",

@@ -2,21 +2,17 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import MagicMock
 
 import fakeredis
 import pytest
 
-from clients.redis_client import RedisStreamsClient
-from clients.tavily_client import TavilyClient, TavilySearchResult
 from config.settings import AppConfig
 from models.communication import Email, PhoneTranscript
-from models.exception import ExceptionState, InvoiceException, LineItemVariance
+from models.exception import ExceptionState, InvoiceException
 from models.exception_record import ExceptionRecord, ExceptionType
 from models.grn import GoodsReceiptNote
 from models.invoice import Invoice, LineItem
 from models.purchase_order import PurchaseOrder
-from models.supplier import Supplier
 from state.redis_backend import RedisStateStore
 
 
@@ -38,40 +34,10 @@ def store(fake_redis) -> RedisStateStore:
 
 
 @pytest.fixture
-def mock_tavily() -> TavilyClient:
-    """A MagicMock TavilyClient returning empty results by default."""
-    client = MagicMock(spec=TavilyClient)
-    client.search.return_value = []
-    client.search_supplier_context.return_value = []
-    client.search_product_availability.return_value = []
-    client.search_price_changes.return_value = []
-    return client
-
-
-@pytest.fixture
-def tavily_with_results(mock_tavily) -> TavilyClient:
-    """TavilyClient mock pre-loaded with canned substitution evidence."""
-    result = TavilySearchResult(
-        title="Apex Paper Co. Temporary Grade A Shortage",
-        url="https://example.com/apex-shortage",
-        content=(
-            "Apex Paper Co. has announced a temporary shortage of Grade A paper. "
-            "Grade B is being offered as a substitute at a 60% premium."
-        ),
-        score=0.92,
-    )
-    mock_tavily.search.return_value = [result]
-    mock_tavily.search_supplier_context.return_value = [result]
-    mock_tavily.search_product_availability.return_value = [result]
-    return mock_tavily
-
-
-@pytest.fixture
 def app_config() -> AppConfig:
     """AppConfig with tight tolerances suitable for testing."""
     return AppConfig(
         REDIS_URL="redis://localhost:6379/0",
-        TAVILY_API_KEY="test-key",
         PRICE_TOLERANCE_PCT=0.03,
         QTY_TOLERANCE_PCT=0.02,
     )
@@ -377,25 +343,6 @@ def sample_transcript() -> PhoneTranscript:
         ),
         related_po="PO-TEST-002",
         related_invoice="INV-TEST-002",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Supplier fixture
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def sample_supplier() -> Supplier:
-    """Apex Paper Co. supplier record (no catalog for simplicity)."""
-    return Supplier(
-        supplier_id="SUP-001",
-        name="Apex Paper Co.",
-        contact_email="sales@apexpaper.com",
-        contact_phone="+1-555-0101",
-        address="123 Paper Mill Rd, Portland, OR 97201",
-        payment_terms="Net 30",
-        currency="USD",
-        active=True,
     )
 
 
