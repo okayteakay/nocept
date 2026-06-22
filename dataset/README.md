@@ -1,6 +1,6 @@
-# Meridian Corp — AP Dataset
+# Sample AP Dataset
 
-Synthetic Accounts Payable dataset for the Invoice Exception Resolution Agent. Every file tells a consistent story: invoices, purchase orders, goods receipts, supplier communications, and pre-classified exceptions that form a coherent narrative across all five exception types.
+Synthetic Accounts Payable dataset for testing the Invoice Exception Resolution Agent. Every file tells a consistent story: invoices, purchase orders, goods receipts, supplier communications, and pre-classified exceptions that form a coherent narrative across all exception types.
 
 ---
 
@@ -16,7 +16,7 @@ Synthetic Accounts Payable dataset for the Invoice Exception Resolution Agent. E
 | `emails.json` | ~104 | Supplier/buyer email threads referencing POs and invoices |
 | `phone_transcripts.json` | ~42 | Call transcripts between suppliers and buyers |
 | `suppliers.json` | 54 | Supplier master: 12 synthetic (SUP-001–SUP-012) + 42 real companies (SUP-013–SUP-094) |
-| `catalog.json` | 1 | Meridian Corp product hierarchy — supplier → product category → grade variants |
+| `catalog.json` | 1 | Product hierarchy — supplier → product category → grade variants |
 
 ---
 
@@ -68,7 +68,7 @@ Of the 83 exception records, `informal_modification` cases are the richest — t
 
 ## Suppliers
 
-**Synthetic suppliers (SUP-001–SUP-012):** Meridian Corp's core vendors — paper, medical supplies, IT hardware, industrial equipment, office furniture, chemicals, etc. These appear in the majority of exceptions and have rich associated comms.
+**Synthetic suppliers (SUP-001–SUP-012):** Core vendors across multiple industries — paper, medical supplies, IT hardware, industrial equipment, office furniture, chemicals, etc. These appear in the majority of exceptions and have rich associated communications.
 
 **Real companies (SUP-013–SUP-094):** FedEx, Nucor Steel, Eastman Chemical, 3M, Honeywell, and others. These rows exist specifically for **Step 5 validation** — Tavily Search can find genuine public announcements (price increases, product discontinuations, supply shortages) for these companies, making the web research gate meaningful.
 
@@ -87,7 +87,7 @@ The history checker matches on: same `supplier_id` + same `exception_type` + var
 
 ## Catalog
 
-`catalog.json` models Meridian Corp's product hierarchy:
+`catalog.json` models a sample product hierarchy:
 
 ```
 Catalog
@@ -113,7 +113,7 @@ The catalog is used by the classifier to:
 All three generators write into `dataset/data/` and are safe to re-run (they overwrite existing files):
 
 ```bash
-# 1. Full synthetic Meridian Corp dataset
+# 1. Full synthetic dataset
 #    Produces invoices, POs, GRNs, exception_records, suppliers, emails, transcripts
 uv run python dataset/generate_data.py
 

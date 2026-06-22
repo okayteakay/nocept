@@ -1,6 +1,6 @@
-# ReceiptFinder — Autonomous Invoice Exception Resolution Agent
+# Nocept — Autonomous Invoice Exception Resolution Agent
 
-> A lightweight, self-contained LLM-driven AP agent that ingests invoices, POs, and GRNs via a unified REST endpoint, runs each through a deterministic decision pipeline, and either auto-resolves or escalates to a human reviewer. Built for Meridian Corp's AP team.
+> A lightweight, self-contained LLM-driven agent that autonomously resolves invoice exceptions. Ingests invoices, POs, and GRNs via a unified REST endpoint, runs each through a deterministic four-gate decision pipeline, and either auto-approves, auto-rejects, or escalates to human review.
 
 **v5.0.0 — Debloated edition.** Removed Celery, knowledge base, analytics, auth, notifications, dashboard, and web research. The pipeline now runs in-process via FastAPI `BackgroundTasks`. Document ingestion unified via LLM-powered normalizer (no SAP mapper, no Tesseract). Single docker-compose stack: `redis` + `api` only.
 
@@ -10,11 +10,12 @@
 
 Enterprise AP teams spend thousands of hours annually manually reviewing invoices that don't match their purchase orders. A three-way match failure — invoice vs. PO vs. goods receipt — triggers an exception that requires human investigation:
 
-- *Did the supplier substitute a product without updating the PO?*
-- *Is this a known price increase we agreed to verbally?*
-- *Was this invoice already submitted last month?*
+- *Did the supplier substitute a product without authorization?*
+- *Is this a known price increase we agreed to?*
+- *Was this invoice already submitted before?*
+- *How much variance is acceptable?*
 
-Most of these exceptions have clear answers in email threads, call transcripts, and prior approval records. ReceiptFinder finds those answers automatically.
+Most of these exceptions have clear answers in email threads, call transcripts, and prior approval records. Nocept finds those answers automatically and routes only complex cases to human reviewers.
 
 ---
 
@@ -148,7 +149,7 @@ Each gate is a pure function in [agent/](agent/); the orchestrator that wires th
 ## Project Structure
 
 ```
-receiptfinder/
+nocept/
 │
 ├── agent/                          # Core decision pipeline
 │   ├── langgraph_agent.py          # In-process LangGraph orchestrator
@@ -220,8 +221,8 @@ receiptfinder/
 ### 1 — Clone & install
 
 ```bash
-git clone https://github.com/meridian-ap/receiptfinder.git
-cd receiptfinder
+git clone https://github.com/okayteakay/nocept.git
+cd nocept
 pip install -e .
 ```
 
@@ -467,8 +468,18 @@ pytest tests/ -v
 
 ## License
 
-Internal use only (Meridian Corp).
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-**Questions?** See the project repository or contact the AP team.
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Support
+
+**Documentation:** Full docs in [ARCHITECTURE](ARCHITECTURE.md), [API](API.md), [OPERATIONS](OPERATIONS.md)
+
+---
+
+Built with ❤️ for AP teams everywhere.

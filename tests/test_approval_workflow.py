@@ -260,7 +260,7 @@ class TestListExceptionsEndpoint:
             po_number="PO-002",
             supplier_id="SUP-002",
             supplier_name="Different Supplier",
-            created_by="buyer@meridian.com",
+            created_by="buyer@company.com",
             department="Office Supplies",
             cost_center="CC-100",
             creation_date=date(2024, 3, 1),

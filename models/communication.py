@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 
 class Email(BaseModel):
-    """An email communication between a Meridian Corp buyer and a supplier contact."""
+    """An email communication between a buyer and a supplier contact."""
 
     email_id: str
     subject: str
@@ -26,7 +26,7 @@ class Email(BaseModel):
 
 
 class PhoneTranscript(BaseModel):
-    """A phone call transcript between a Meridian Corp employee and a supplier rep."""
+    """A phone call transcript between an employee and a supplier representative."""
 
     transcript_id: str
     caller: str

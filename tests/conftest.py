@@ -84,7 +84,7 @@ def sample_po(grade_a_line) -> PurchaseOrder:
         po_number="PO-TEST-001",
         supplier_id="SUP-001",
         supplier_name="Apex Paper Co.",
-        created_by="buyer.johnson@meridian.com",
+        created_by="buyer.johnson@company.com",
         department="Office Supplies",
         cost_center="CC-100",
         creation_date=date(2024, 3, 1),
@@ -118,7 +118,7 @@ def sample_grn(grade_a_line) -> GoodsReceiptNote:
         invoice_number="INV-TEST-001",
         supplier_id="SUP-001",
         date_received=date(2024, 3, 14),
-        received_by="warehouse.smith@meridian.com",
+        received_by="warehouse.smith@company.com",
         line_items=[grade_a_line],
     )
 
@@ -134,7 +134,7 @@ def informal_mod_po() -> PurchaseOrder:
         po_number="PO-TEST-002",
         supplier_id="SUP-001",
         supplier_name="Apex Paper Co.",
-        created_by="buyer.johnson@meridian.com",
+        created_by="buyer.johnson@company.com",
         department="Office Supplies",
         cost_center="CC-100",
         creation_date=date(2024, 3, 1),
@@ -194,7 +194,7 @@ def informal_mod_grn() -> GoodsReceiptNote:
         invoice_number="INV-TEST-002",
         supplier_id="SUP-001",
         date_received=date(2024, 3, 14),
-        received_by="warehouse.smith@meridian.com",
+        received_by="warehouse.smith@company.com",
         line_items=[
             LineItem(
                 sku="AP-CPA-STD",
@@ -233,7 +233,7 @@ def price_variance_po() -> PurchaseOrder:
         po_number="PO-TEST-003",
         supplier_id="SUP-002",
         supplier_name="MediSupply Corp.",
-        created_by="buyer.chen@meridian.com",
+        created_by="buyer.chen@company.com",
         department="Medical Supplies",
         cost_center="CC-200",
         creation_date=date(2024, 2, 1),
@@ -314,7 +314,7 @@ def sample_email() -> Email:
         email_id="EMAIL-TEST-001",
         subject="Re: PO-TEST-002 — Grade A Paper Shortage",
         sender="sales@apexpaper.com",
-        receiver="buyer.johnson@meridian.com",
+        receiver="buyer.johnson@company.com",
         date=date(2024, 3, 10),
         body=(
             "Hi, due to a temporary shortage of Standard grade paper we will be "
@@ -333,8 +333,8 @@ def sample_transcript() -> PhoneTranscript:
         transcript_id="TRANS-TEST-001",
         caller="sales@apexpaper.com",
         caller_organization="Apex Paper Co.",
-        callee="buyer.johnson@meridian.com",
-        callee_organization="Meridian Corp",
+        callee="buyer@company.com",
+        callee_organization="Company Inc.",
         date=date(2024, 3, 11),
         duration_minutes=8,
         transcript=(

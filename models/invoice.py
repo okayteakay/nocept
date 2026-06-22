@@ -10,7 +10,7 @@ PAYMENT_TERMS = {"Net 30", "Net 45", "Net 60", "2/10 Net 30"}
 class LineItem(BaseModel):
     """A single line item shared by Invoice, PurchaseOrder, and GoodsReceiptNote.
 
-    All three document types use this identical structure in the Meridian Corp dataset.
+    All three document types use this identical structure for consistency.
     """
 
     sku: str

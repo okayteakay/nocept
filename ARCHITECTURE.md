@@ -2,7 +2,7 @@
 
 **Version:** 5.0 (Debloated)  
 **Date:** June 2026  
-**System Name:** ReceiptFinder — Autonomous Invoice Exception Resolution Agent
+**System Name:** Nocept — Autonomous Invoice Exception Resolution Agent
 
 ---
 
@@ -23,7 +23,7 @@
 
 ### Purpose
 
-ReceiptFinder automatically triages and resolves invoice-to-PO mismatches in enterprise Accounts Payable workflows. It eliminates ~70% of routine manual exception reviews through intelligent decision gates, while escalating complex cases to human managers with evidence-based recommendations.
+Nocept automatically triages and resolves invoice-to-PO mismatches in enterprise Accounts Payable workflows. It eliminates ~70% of routine manual exception reviews through intelligent decision gates, while escalating complex cases to human managers with evidence-based recommendations.
 
 ### Key Outcomes
 

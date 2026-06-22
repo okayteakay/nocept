@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 
 class ExceptionType(str, Enum):
-    """All recognized invoice exception types in the Meridian Corp dataset."""
+    """All recognized invoice exception types."""
 
     NONE = "none"
     PRICE_VARIANCE = "price_variance"
